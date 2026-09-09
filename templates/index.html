@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="transition-colors duration-300">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartBottle™ | Industrial AI Vision SCADA</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Cairo', 'Inter', 'sans-serif'],
+                        mono: ['Inter', 'monospace'],
+                    },
+                    boxShadow: {
+                        'luxury': '0 8px 30px rgba(0, 0, 0, 0.04)',
+                        'luxury-dark': '0 8px 30px rgba(0, 0, 0, 0.4)',
+                        'luxury-hover': '0 12px 36px rgba(0, 0, 0, 0.08)',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Cairo', 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .number-font {
+            font-family: 'Inter', sans-serif;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 999px;
+        }
+        .dark ::-webkit-scrollbar-thumb {
+            background: #475569;
+        }
+        .ios-switch {
+            transition: background-color 0.2s ease-in-out;
+        }
+        .ios-knob {
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        /* Fullscreen Video Container Styles */
+        #videoContainer:fullscreen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000;
+        }
+        #videoContainer:fullscreen img {
+            width: auto;
+            height: 100vh;
+            max-width: 100vw;
+            object-fit: contain;
+        }
+        #videoContainer:fullscreen .fullscreen-overlay-ui {
+            transform: scale(1.2);
+            transform-origin: bottom center;
+        }
+
+        /* AI Scanline & Snapshot Animations */
+        .scan-line-anim {
+            animation: scanLineAnim 1.4s linear infinite;
+        }
+        @keyframes scanLineAnim {
+            0% { top: 0%; opacity: 0.8; }
+            50% { opacity: 1; }
+            100% { top: 100%; opacity: 0.8; }
+        }
+        .upload-zone-hover:hover {
+            border-color: #6366f1;
+            background: rgba(99, 102, 241, 0.04);
+        }
+        .dark .upload-zone-hover:hover {
+            background: rgba(99, 102, 241, 0.08);
+        }
+        .capture-flash-anim {
+            animation: flashAnim 0.35s ease-out forwards;
+        }
+        @keyframes flashAnim {
+            0% { opacity: 0.85; }
+            100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-[#F3F4F6] dark:bg-slate-900 text-slate-800 dark:text-slate-100 p-4 md:p-8 lg:p-10 selection:bg-indigo-600 selection:text-white transition-colors duration-300">
+
+    <div class="max-w-[1600px] mx-auto">
+        <!-- ========================================================================= -->
+        <!-- Header Bar                                                                -->
+        <!-- ========================================================================= -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between mb-8 pb-4 gap-4">
+            <div class="flex items-center space-x-3.5 space-x-reverse">
+                <div class="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-200 dark:shadow-indigo-900/50">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="text-2xl font-black text-slate-900 dark:text-white tracking-tight">SmartBottle™</h1>
+                        <span class="bg-indigo-50 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider border border-indigo-100 dark:border-indigo-800">SCADA v4.0</span>
+                    </div>
+                    <p class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">نظام فحص صناعي حي بالذكاء الاصطناعي</p>
+                </div>
+            </div>
+
+            <!-- Header Status Badges, Mode Switcher & Quick Tools -->
+            <!-- Header Status Badges, Mode Switcher & Quick Tools -->
+            <div class="flex flex-wrap items-center gap-2.5">
+                <!-- Dashboard Mode Switcher (Live SCADA vs Manual AI Inspection) -->
+                <div class="bg-white dark:bg-slate-800 p-1 rounded-2xl shadow-luxury dark:shadow-luxury-dark flex items-center border border-slate-200/70 dark:border-slate-700/60">
+                    <button id="btnModeLive" onclick="switchDashboardMode('live')" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all bg-indigo-600 text-white shadow-sm" title="الوضع الحي المستمر">
+                        <span class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                        </span>
+                        <span>بث مباشر (Live)</span>
+                    </button>
+                    <button id="btnModeInspect" onclick="switchDashboardMode('inspect')" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400" title="فحص يدوي للصور أو لقطة ESP32">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span>فحص يدوي (AI Upload)</span>
+                    </button>
+                </div>
+
+                <!-- Inspector Studio Link -->
+                <a href="/inspector" class="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded-2xl shadow-md shadow-indigo-200 dark:shadow-indigo-900/40 transition-all flex items-center gap-1.5" title="مختبر الفحص والتحليل العميق">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                    <span>Inspector AI</span>
+                </a>
+
+                <!-- Theme Dark Toggle -->
+                <button onclick="toggleDarkMode()" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 text-slate-600 dark:text-slate-300 w-10 h-10 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-all flex items-center justify-center border border-slate-200/60 dark:border-slate-700" title="تبديل الوضع الليلي">
+                    <svg id="themeIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+
+                <!-- ESP32 Online Status Pill -->
+                <div class="flex items-center space-x-2 space-x-reverse bg-white dark:bg-slate-800 px-3 py-2 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-200/60 dark:border-slate-700">
+                    <span id="espStatusDot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                    <span class="text-xs font-bold text-slate-700 dark:text-slate-300" id="espStatusLabel">تحقق من ESP32...</span>
+                </div>
+
+                <!-- FPS Display -->
+                <div class="flex items-center space-x-2 space-x-reverse bg-white dark:bg-slate-800 px-3 py-2 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-200/60 dark:border-slate-700">
+                    <svg class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    <span class="text-xs font-bold text-slate-700 dark:text-slate-300 number-font" id="fpsDisplay">-- FPS</span>
+                </div>
+
+                <!-- LabVIEW Stream Quick Link -->
+                <a href="/labview_cam" target="_blank" class="flex items-center space-x-2 space-x-reverse bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 text-slate-700 dark:text-slate-300 text-xs font-bold px-3 py-2 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-all border border-slate-200/60 dark:border-slate-700" title="فتح بث الكاميرا لبرنامج LabVIEW">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>بث LabVIEW</span>
+                </a>
+
+                <!-- Export CSV Report Button -->
+                <a href="/api/export_csv" class="flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 text-indigo-600 dark:text-indigo-400 text-xs font-bold px-3 py-2 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-all border border-slate-200/60 dark:border-slate-700" title="تصدير تقرير الفحص بصيغة CSV">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>تقرير CSV</span>
+                </a>
+
+                <!-- Reset Stats Button -->
+                <button onclick="resetSystemStats()" class="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 text-slate-600 dark:text-slate-300 text-xs font-bold px-3 py-2 rounded-2xl shadow-luxury dark:shadow-luxury-dark transition-all flex items-center gap-1.5 border border-slate-200/60 dark:border-slate-700" title="تصفير العدادات">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>تصفير</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ========================================================================= -->
+        <!-- 3-Column Studio Grid Layout                                               -->
+        <!-- ========================================================================= -->
+        <main class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+
+            <!-- ------------------------------------------------------------------- -->
+            <!-- Left Column: Controls & Cameras (3 cols)                            -->
+            <!-- ------------------------------------------------------------------- -->
+            <div class="lg:col-span-3 flex flex-col space-y-6">
+
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <!-- Live SCADA Controls Container                                   -->
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <div id="liveControlsContainer" class="space-y-6">
+
+                    <!-- 1. Multi-Source Camera Selector -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="font-medium text-xs tracking-wider uppercase text-slate-400 dark:text-slate-500">مصدر الكاميرا</h2>
+                            <span id="badgeCurrentCameraMode" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">نشط</span>
+                        </div>
+
+                        <div class="space-y-3">
+                            <label class="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase">اختر نوع التصوير</label>
+                            <select id="cameraSourceSelect" onchange="handleCameraSourceChange()" class="w-full text-xs font-bold bg-slate-50 dark:bg-slate-900 border-0 rounded-2xl p-3 text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-colors cursor-pointer">
+                                <option value="esp32cam_stream">ESP32-CAM (بث حي - Stream)</option>
+                                <option value="esp32cam_capture">ESP32-CAM (لقطات - Capture)</option>
+                                <option value="webcam_0">كاميرا اللابتوب الأساسية (Webcam 0)</option>
+                                <option value="usb_typec_1">كاميرا هاتف متصلة USB Type-C (Index 1)</option>
+                                <option value="usb_typec_2">كاميرا إضافية USB (Index 2)</option>
+                                <option value="ipcam">كاميرا هاتف عبر الشبكة (IP Cam)</option>
+                            </select>
+
+                            <!-- Dynamic IP Input for Network Cameras -->
+                            <div id="ipInputContainer" class="space-y-2 mt-2">
+                                <label class="block text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase">رابط الكاميرا (IP URL)</label>
+                                <input id="cameraUrlInput" type="text" value="http://192.168.0.133/stream" dir="ltr" class="w-full text-xs font-mono font-semibold bg-slate-50 dark:bg-slate-900 border-0 rounded-2xl p-3 text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-colors">
+                            </div>
+
+                            <button onclick="applyCameraSettings()" class="w-full mt-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl font-bold text-xs transition-all">
+                                تطبيق إعدادات الكاميرا
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 2. Station Controls (iOS-style Toggles) -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors">
+                        <div class="flex items-center justify-between mb-5">
+                            <h2 class="font-medium text-xs tracking-wider uppercase text-slate-400 dark:text-slate-500">التحكم في المحطة</h2>
+                            <span class="w-2 h-2 rounded-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.8)]"></span>
+                        </div>
+
+                        <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                            <div class="flex items-center justify-between py-3.5">
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800 dark:text-slate-200">الفحص الذاتي المستمر</p>
+                                    <p class="text-xs text-slate-400 dark:text-slate-500 font-normal">مزامنة تلقائية مع الألتراسونيك</p>
+                                </div>
+                                <button id="toggleAutoMode" onclick="handleAutoModeToggle()" type="button" class="ios-switch relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full bg-indigo-600 focus:outline-none">
+                                    <span id="knobAutoMode" class="ios-knob pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm mt-0.5 translate-x-5.5 mr-0.5"></span>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between py-3.5">
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800 dark:text-slate-200">محرك السير الناقل</p>
+                                </div>
+                                <button id="toggleMotor" onclick="handleMotorToggle()" type="button" class="ios-switch relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full bg-slate-200 dark:bg-slate-600 focus:outline-none">
+                                    <span id="knobMotor" class="ios-knob pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm mt-0.5 translate-x-0.5 mr-0"></span>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between py-3.5">
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800 dark:text-slate-200">إضاءة صندوق الفحص</p>
+                                </div>
+                                <button id="toggleLight" onclick="handleLightToggle()" type="button" class="ios-switch relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full bg-slate-200 dark:bg-slate-600 focus:outline-none">
+                                    <span id="knobLight" class="ios-knob pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm mt-0.5 translate-x-0.5 mr-0"></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="pt-4 mt-2">
+                            <button onclick="triggerManualReject()" type="button" class="w-full py-3.5 px-4 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 active:scale-[0.98] text-rose-600 dark:text-rose-400 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center space-x-2 space-x-reverse border border-rose-100 dark:border-rose-500/20">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>طرد يدوي فوري للعبوة</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 3. Ultrasonic Sensor Proximity Card -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-100 dark:border-slate-700/40">
+                        <!-- Card Header -->
+                        <div class="flex items-start justify-between mb-4">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"></span>
+                                    <h2 class="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                                        <span>حساس المسافة</span>
+                                        <bdi dir="ltr" class="font-mono text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800 whitespace-nowrap">HC&#8209;SR04</bdi>
+                                    </h2>
+                                </div>
+                                <p class="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">بث حي ومباشر للمسافة الفعلية</p>
+                            </div>
+                            <span id="ultrasonicBadge" class="text-[11px] font-bold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                                <span id="ultrasonicDot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+                                <span id="ultrasonicBadgeText">جارِ التحقق...</span>
+                            </span>
+                        </div>
+
+                        <!-- Direct Real-Time Distance Value -->
+                        <div class="flex items-baseline justify-between mt-2 mb-2">
+                            <div class="flex items-baseline gap-2" dir="ltr">
+                                <span id="ultrasonicDistance" class="font-black text-5xl tracking-tight text-slate-900 dark:text-white number-font">--.-</span>
+                                <span id="ultrasonicUnit" class="text-base font-bold text-slate-400 dark:text-slate-500">cm</span>
+                            </div>
+                            <div id="ultrasonicStatusHint" class="text-xs font-bold text-slate-400 dark:text-slate-500 font-mono" dir="ltr">
+                                Live Telemetry
+                            </div>
+                        </div>
+
+                        <!-- Dynamic Progress Bar -->
+                        <div class="w-full bg-slate-100 dark:bg-slate-700/60 rounded-full h-3 mt-3 overflow-hidden" dir="ltr">
+                            <div id="ultrasonicBar" class="bg-indigo-600 h-3 rounded-full transition-all duration-150" style="width: 0%;"></div>
+                        </div>
+
+                        <!-- Interactive Threshold Adjuster (Slider + Presets) -->
+                        <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-700/40">
+                            <div class="flex items-center justify-between text-xs mb-2">
+                                <span class="font-bold text-slate-700 dark:text-slate-300">عتبة الرصد التفاعلية:</span>
+                                <bdi dir="ltr" id="thresholdDisplay" class="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2.5 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-800">≤ 50 cm</bdi>
+                            </div>
+                            <input id="thresholdSlider" type="range" min="10" max="80" value="50" step="1" 
+                                   oninput="onThresholdSliderInput(this.value)" 
+                                   onchange="onThresholdSliderChange(this.value)"
+                                   class="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+                            
+                            <!-- Quick Presets -->
+                            <div class="flex items-center justify-between gap-1.5 mt-2.5">
+                                <button type="button" onclick="setThresholdPreset(25)" class="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/60 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all border border-slate-200/60 dark:border-slate-600/50">
+                                    <bdi dir="ltr">25 cm</bdi>
+                                    <span class="text-[9px] opacity-80">(بوكس)</span>
+                                </button>
+                                <button type="button" onclick="setThresholdPreset(50)" class="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 transition-all border border-indigo-200 dark:border-indigo-700 font-extrabold shadow-sm">
+                                    <bdi dir="ltr">50 cm</bdi>
+                                    <span class="text-[9px] opacity-80">(يد/مكتب)</span>
+                                </button>
+                                <button type="button" onclick="setThresholdPreset(70)" class="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/60 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all border border-slate-200/60 dark:border-slate-600/50">
+                                    <bdi dir="ltr">70 cm</bdi>
+                                    <span class="text-[9px] opacity-80">(بعيد)</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <!-- Manual AI Inspection Controls Container (Uploaded & ESP32-CAM) -->
+                <!-- ═══════════════════════════════════════════════════════════════ -->
+                <div id="inspectControlsContainer" class="hidden space-y-6">
+
+                    <!-- Card 1: Upload Image from Device -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-100 dark:border-slate-700/40">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                                <h2 class="font-bold text-sm text-slate-800 dark:text-white">رفع صورة للتحليل</h2>
+                            </div>
+                            <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">YOLOv8</span>
+                        </div>
+
+                        <!-- Drag & Drop Zone -->
+                        <div id="uploadDropZone" onclick="document.getElementById('manualFileInput').click()"
+                             class="upload-zone-hover border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-2xl p-6 text-center cursor-pointer transition-all">
+                            <div class="text-3xl mb-2">📷</div>
+                            <p class="text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">اسحب الصورة هنا أو اضغط للرفع</p>
+                            <p class="text-[11px] text-slate-400 dark:text-slate-500">JPG, PNG, WEBP, BMP</p>
+                        </div>
+                        <input type="file" id="manualFileInput" accept="image/*" class="hidden" onchange="handleManualFileSelect(event)">
+
+                        <!-- Selected File Info Pill -->
+                        <div id="selectedFileInfo" class="hidden mt-3 p-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/60 dark:border-slate-700 flex items-center justify-between">
+                            <div class="flex items-center gap-2.5 overflow-hidden">
+                                <img id="selectedFileThumb" src="" alt="معاينة" class="w-9 h-9 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0">
+                                <div class="overflow-hidden">
+                                    <p id="selectedFileName" class="text-xs font-bold text-slate-700 dark:text-slate-200 truncate" dir="ltr">image.jpg</p>
+                                    <p id="selectedFileSize" class="text-[10px] text-slate-400 dark:text-slate-500 font-mono">0 KB</p>
+                                </div>
+                            </div>
+                            <button onclick="clearSelectedFile(event)" class="text-rose-500 hover:text-rose-600 active:scale-95 p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors" title="إلغاء الملف">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Analyze Upload Button -->
+                        <button id="btnAnalyzeUpload" onclick="analyzeUploadedImage()" disabled
+                                class="w-full mt-4 py-3.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-indigo-200 dark:shadow-indigo-900/40">
+                            <span id="btnAnalyzeUploadIcon">🚀</span>
+                            <span id="btnAnalyzeUploadText">فحص الصورة بنموذج YOLO</span>
+                        </button>
+                    </div>
+
+                    <!-- Card 2: ESP32-CAM Snapshot -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-100 dark:border-slate-700/40">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+                                <h2 class="font-bold text-sm text-slate-800 dark:text-white">لقطة ESP32-CAM</h2>
+                            </div>
+                            <span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800">Snapshot</span>
+                        </div>
+
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                            التقاط إطار واحد ثابت من كاميرا ESP32-CAM الحالية وتمريره لمحرك الذكاء الاصطناعي لفحص الجودة.
+                        </p>
+
+                        <button id="btnCaptureEsp32" onclick="captureAndInspectEsp32()"
+                                class="w-full py-3.5 px-4 bg-sky-500 hover:bg-sky-600 active:scale-[0.98] text-white font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2 shadow-md shadow-sky-200 dark:shadow-sky-900/40">
+                            <span id="btnCaptureEsp32Icon">📸</span>
+                            <span id="btnCaptureEsp32Text">التقاط لقطة فورية وفحصها</span>
+                        </button>
+                    </div>
+
+                    <!-- Card 3: Switch back button -->
+                    <div class="bg-white dark:bg-slate-800 rounded-3xl p-4 shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-100 dark:border-slate-700/40">
+                        <button onclick="switchDashboardMode('live')" class="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/60 dark:hover:bg-slate-700 active:scale-[0.98] text-slate-700 dark:text-slate-200 font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                            </svg>
+                            <span>العودة للبث المباشر (SCADA)</span>
+                        </button>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- ------------------------------------------------------------------- -->
+            <!-- Center Column: Massive Camera Focus Area (6 cols)                   -->
+            <!-- ------------------------------------------------------------------- -->
+            <div class="lg:col-span-6 flex flex-col space-y-6">
+
+                <!-- Massive Visual Focus Container -->
+                <div id="videoContainer" class="relative w-full aspect-[4/3] bg-slate-950 rounded-3xl overflow-hidden shadow-luxury dark:shadow-luxury-dark group border border-slate-800/50">
+                    
+                    <!-- 1. Live Stream Feed -->
+                    <img id="mainVideoFeed" src="/video_feed" alt="بث فحص الكاميرا" class="w-full h-full object-cover select-none">
+
+                    <!-- 2. Static Inspected Image (Shown after Upload or Snapshot) -->
+                    <img id="staticInspectImage" src="" alt="صورة الفحص المحللة" class="hidden w-full h-full object-contain select-none bg-slate-950">
+
+                    <!-- 3. AI Scanline Overlay during inference -->
+                    <div id="aiScanOverlay" class="hidden absolute inset-0 bg-slate-950/70 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-30 pointer-events-none transition-all">
+                        <div class="relative w-full h-full">
+                            <div class="scan-line-anim absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-indigo-400 to-transparent" style="box-shadow:0 0 14px #6366f1;"></div>
+                        </div>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                            <div class="w-14 h-14 rounded-2xl bg-indigo-600/90 flex items-center justify-center text-white text-2xl animate-pulse shadow-lg shadow-indigo-500/50">🧠</div>
+                            <p id="aiScanOverlayText" class="text-white text-sm font-bold tracking-wide">جارٍ الفحص والتحليل بنموذج YOLOv8...</p>
+                            <span class="text-indigo-300 text-xs font-mono">Neural Inference</span>
+                        </div>
+                    </div>
+
+                    <!-- 4. Camera Snapshot Flash Effect -->
+                    <div id="cameraFlashOverlay" class="hidden absolute inset-0 bg-white z-40 pointer-events-none"></div>
+
+                    <!-- Corner Luxury Floating Decision Badge (Glassmorphic) -->
+                    <div id="floatingDecisionCard" class="fullscreen-overlay-ui absolute top-5 right-5 backdrop-blur-md bg-white/85 dark:bg-slate-900/85 rounded-2xl p-4 shadow-lg flex items-center space-x-3.5 space-x-reverse transition-all duration-300 border border-white/20 dark:border-slate-700/50 z-20">
+                        <div id="decisionDot" class="w-3.5 h-3.5 rounded-full bg-slate-400 ring-4 ring-slate-200 dark:ring-slate-700"></div>
+                        <div>
+                            <p class="text-[10px] font-extrabold uppercase tracking-widest text-slate-500 dark:text-slate-400">نتيجة الفحص الحالية</p>
+                            <p id="decisionText" class="text-base font-black tracking-tight text-slate-600 dark:text-slate-300">في الانتظار...</p>
+                        </div>
+                    </div>
+
+                    <!-- Fullscreen Toggle Button -->
+                    <button onclick="toggleFullScreen()" class="fullscreen-overlay-ui absolute top-5 left-5 backdrop-blur-md bg-slate-900/60 hover:bg-slate-900/80 text-white rounded-xl p-2.5 transition-all z-20" title="ملء الشاشة">
+                        <svg id="fullscreenIcon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                    </button>
+
+                    <!-- Bottom Floating Status Bar -->
+                    <div class="fullscreen-overlay-ui absolute bottom-5 inset-x-5 backdrop-blur-md bg-slate-900/70 text-white rounded-2xl p-3.5 px-5 flex items-center justify-between text-xs font-medium border border-white/10 z-20">
+                        <div class="flex items-center space-x-2 space-x-reverse">
+                            <span id="videoStatusDot" class="w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]"></span>
+                            <span id="videoSourceBadge" class="text-slate-200">صندوق الفحص الذكي (Vision Chamber)</span>
+                        </div>
+                        <div class="text-slate-300 font-mono">
+                            دقة النموذج: <strong id="confidenceLabel" class="text-white number-font">0.0%</strong> | المعالجة: <strong id="latencyLabel" class="text-white number-font">0ms</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 1. Live Quick Action Strip (Shown in Live Mode) -->
+                <div id="liveActionStrip" class="bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-luxury dark:shadow-luxury-dark flex items-center justify-between transition-colors border border-slate-100 dark:border-slate-700/50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold">
+                            📦
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-slate-800 dark:text-slate-200">حالة العبوة في المحطة</p>
+                            <p id="stationStatusText" class="text-xs text-slate-400 dark:text-slate-500">انتظار البيانات...</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="takeManualSnapshot()" class="bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 active:scale-95 text-indigo-700 dark:text-indigo-400 text-xs font-bold px-4 py-2.5 rounded-2xl transition-all border border-indigo-100 dark:border-indigo-800/50">
+                            📸 تحديث الكاميرا يدويًا
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. Manual Inspection Quick Action Strip (Shown in Inspect Mode) -->
+                <div id="inspectActionStrip" class="hidden bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-luxury dark:shadow-luxury-dark flex flex-col sm:flex-row items-center justify-between gap-3 transition-colors border border-slate-100 dark:border-slate-700/50">
+                    <div class="flex items-center gap-3 w-full sm:w-auto">
+                        <div class="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-lg font-bold">
+                            🔬
+                        </div>
+                        <div>
+                            <p class="text-xs font-bold text-slate-800 dark:text-slate-200">وضع الفحص المستقل</p>
+                            <p id="inspectStatusText" class="text-xs text-slate-400 dark:text-slate-500">جاهز لاستقبال الصور أو التقاط لقطة</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <button id="btnDownloadInspect" onclick="downloadInspectedImage()" class="hidden bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 active:scale-95 text-emerald-700 dark:text-emerald-400 text-xs font-bold px-3.5 py-2.5 rounded-2xl transition-all border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1.5" title="تنزيل الصورة المحللة">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span>تحميل</span>
+                        </button>
+                        <button onclick="resetManualInspect()" class="bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-95 text-slate-600 dark:text-slate-300 text-xs font-bold px-3.5 py-2.5 rounded-2xl transition-all border border-slate-200 dark:border-slate-600 flex items-center gap-1.5" title="إعادة تعيين وعرض البث">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>صورة جديدة</span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ------------------------------------------------------------------- -->
+            <!-- Right Column: Charts & KPIs (3 cols)                                -->
+            <!-- ------------------------------------------------------------------- -->
+            <div class="lg:col-span-3 flex flex-col space-y-6">
+
+                <!-- 1. Quality Ratio Doughnut Chart -->
+                <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="font-medium text-xs tracking-wider uppercase text-slate-400 dark:text-slate-500">معدل الجودة (Quality Rate)</h2>
+                    </div>
+                    <div class="relative h-48 w-full flex items-center justify-center mt-2">
+                        <canvas id="qualityChart"></canvas>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-4">
+                            <span id="kpiPassRate" class="font-extrabold text-3xl tracking-tight text-slate-800 dark:text-white number-font">100%</span>
+                            <span class="text-[10px] text-slate-400 font-bold uppercase">Pass Rate</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mt-4 text-center border-t border-slate-100 dark:border-slate-700 pt-4">
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400">إجمالي المفحوص</p>
+                            <p id="kpiTotalCount" class="text-lg font-extrabold text-slate-700 dark:text-slate-300 number-font">0</p>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400">المعيبة (Reject)</p>
+                            <p id="kpiDefectCount" class="text-lg font-extrabold text-rose-500 number-font">0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Defect Diagnostics Details -->
+                <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors flex-1">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-medium text-xs tracking-wider uppercase text-slate-400 dark:text-slate-500">تفاصيل العيوب</h2>
+                        <span class="text-[10px] bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold px-2 py-0.5 rounded-full border border-rose-100 dark:border-rose-500/20">AI YOLO</span>
+                    </div>
+                    <div class="space-y-2.5">
+                        <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                            <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">غطاء مفقود (Cap Missing)</span>
+                            <span id="defectCapCount" class="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-rose-500 number-font">0</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                            <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">بلاستيك تالف (Damaged Body)</span>
+                            <span id="defectPlasticCount" class="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-amber-500 number-font">0</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                            <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">ملصق مفقود (Label Missing)</span>
+                            <span id="defectLabelCount" class="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-white dark:bg-slate-800 shadow-sm text-slate-500 dark:text-slate-400 number-font">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Manual Detections Container -->
+                    <div id="manualDetectionsContainer" class="hidden mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                        <div class="flex items-center justify-between mb-2">
+                            <p class="text-[11px] font-bold text-slate-500 dark:text-slate-400">عناصر الرصد في الصورة:</p>
+                            <span id="manualDetectionsCount" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 font-bold">0</span>
+                        </div>
+                        <div id="manualDetectionsList" class="space-y-1.5 max-h-36 overflow-y-auto">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </main>
+
+        <!-- ========================================================================= -->
+        <!-- Live Inspection History Log Section                                       -->
+        <!-- ========================================================================= -->
+        <div class="mt-8 bg-white dark:bg-slate-800 rounded-3xl p-6 shadow-luxury dark:shadow-luxury-dark transition-colors border border-slate-100 dark:border-slate-700/50">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <div class="flex items-center gap-2.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
+                    <h2 class="font-bold text-sm text-slate-800 dark:text-white">سجل عمليات الفحص الحية (Inspection History)</h2>
+                    <span id="logCountBadge" class="text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">0 عمليات</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a href="/api/export_csv" class="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 transition-all border border-indigo-200 dark:border-indigo-700">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>تصدير تقرير CSV</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                <table class="w-full text-right text-xs">
+                    <thead>
+                        <tr class="text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700/60 pb-2">
+                            <th class="py-2.5 px-3 font-semibold">الوقت</th>
+                            <th class="py-2.5 px-3 font-semibold">قرار الفحص</th>
+                            <th class="py-2.5 px-3 font-semibold">نوع العيب / التصنيف</th>
+                            <th class="py-2.5 px-3 font-semibold">نسبة الثقة</th>
+                            <th class="py-2.5 px-3 font-semibold">المصدر</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inspectionLogsTableBody" class="divide-y divide-slate-100 dark:divide-slate-700/40 text-slate-700 dark:text-slate-200 font-medium">
+                        <tr>
+                            <td colspan="5" class="py-6 text-center text-slate-400 dark:text-slate-500">في انتظار تسجيل أول عملية فحص...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-5 py-3 rounded-2xl shadow-2xl opacity-0 pointer-events-none transition-all duration-300 z-50 flex items-center gap-2 border border-slate-700">
+        <span id="toastText">تم تنفيذ الإجراء</span>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- Production JavaScript Logic                                               -->
+    <!-- ========================================================================= -->
+    <script>
+        // --- 1. Theming & Utility ---
+        let isDarkMode = localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDarkMode) document.documentElement.classList.add('dark');
+
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            if (isDarkMode) {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+            }
+            playClickSound();
+            updateChartColors();
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const text = document.getElementById('toastText');
+            text.innerText = msg;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 2500);
+        }
+
+        // --- 2. Audio Engine (Web Audio API) ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playClickSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.05);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.05);
+        }
+
+        function playAlertSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+
+        // --- 3. Charts Initialization ---
+        let qualityChart;
+        Chart.defaults.font.family = "'Inter', 'Cairo', sans-serif";
+        
+        function initCharts() {
+            const ctx = document.getElementById('qualityChart').getContext('2d');
+            qualityChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['PASS', 'REJECT'],
+                    datasets: [{
+                        data: [100, 0],
+                        backgroundColor: ['#10B981', '#F43F5E'],
+                        borderWidth: 0,
+                        cutout: '75%',
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: true } },
+                    animation: { animateScale: false, animateRotate: true }
+                }
+            });
+        }
+
+        function updateChartColors() {
+            if (qualityChart) {
+                qualityChart.update();
+            }
+        }
+        initCharts();
+
+        // --- 4. Camera Source Selector Logic ---
+        function handleCameraSourceChange() {
+            const src = document.getElementById('cameraSourceSelect').value;
+            const ipContainer = document.getElementById('ipInputContainer');
+            if (src.includes('esp32cam') || src === 'ipcam') {
+                ipContainer.style.display = 'block';
+            } else {
+                ipContainer.style.display = 'none';
+            }
+        }
+
+        async function applyCameraSettings() {
+            playClickSound();
+            const val = document.getElementById('cameraSourceSelect').value;
+            let sourceType = '';
+            let cameraIndex = 0;
+            let ipUrl = document.getElementById('cameraUrlInput').value.trim();
+
+            if (val === 'esp32cam_stream') {
+                sourceType = 'esp32cam';
+                ipUrl = ipUrl.replace('/capture', '/stream');
+                if (!ipUrl.endsWith('/stream')) ipUrl = ipUrl.replace(/\/+$/, '') + '/stream';
+            } else if (val === 'esp32cam_capture') {
+                sourceType = 'esp32cam';
+                ipUrl = ipUrl.replace('/stream', '/capture');
+                if (!ipUrl.endsWith('/capture')) ipUrl = ipUrl.replace(/\/+$/, '') + '/capture';
+            } else if (val === 'ipcam') {
+                sourceType = 'ipcam';
+            } else if (val.startsWith('webcam_')) {
+                sourceType = 'webcam';
+                cameraIndex = parseInt(val.split('_')[1]);
+            } else if (val.startsWith('usb_typec_')) {
+                sourceType = 'usb_typec';
+                cameraIndex = parseInt(val.split('_')[2]);
+            }
+
+            document.getElementById('cameraUrlInput').value = ipUrl;
+
+            await fetch('/api/update_settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({source_type: sourceType, ip_url: ipUrl, camera_index: cameraIndex})
+            });
+            
+            document.getElementById('mainVideoFeed').src = '/video_feed?t=' + new Date().getTime();
+            showToast("تم تطبيق إعدادات الكاميرا بنجاح");
+        }
+
+        function takeManualSnapshot() {
+            playClickSound();
+            document.getElementById('mainVideoFeed').src = '/video_feed?t=' + new Date().getTime();
+            showToast("📸 تم التحديث");
+        }
+
+        // Full Screen Video Logic
+        function toggleFullScreen() {
+            playClickSound();
+            const container = document.getElementById('videoContainer');
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    alert(`خطأ: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // --- 5. WebSocket Integration & Dynamic Distance Threshold Controls ---
+        const socket = io();
+        
+        let previousDecision = 'READY';
+        let activeDistanceThreshold = 50.0;
+        let isUserAdjustingSlider = false;
+
+        function onThresholdSliderInput(val) {
+            isUserAdjustingSlider = true;
+            val = parseFloat(val);
+            activeDistanceThreshold = val;
+            const disp = document.getElementById('thresholdDisplay');
+            if (disp) disp.innerText = `≤ ${val.toFixed(0)} cm`;
+        }
+
+        async function onThresholdSliderChange(val) {
+            val = parseFloat(val);
+            activeDistanceThreshold = val;
+            try {
+                await fetch('/api/update_settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({distance_threshold: val})
+                });
+                showToast(`🎯 تم ضبط عتبة الحساس على ${val.toFixed(0)} سم`);
+            } catch (e) {
+                console.error("Failed to send threshold update", e);
+            } finally {
+                setTimeout(() => { isUserAdjustingSlider = false; }, 600);
+            }
+        }
+
+        function setThresholdPreset(val) {
+            playClickSound();
+            const slider = document.getElementById('thresholdSlider');
+            if (slider) slider.value = val;
+            onThresholdSliderInput(val);
+            onThresholdSliderChange(val);
+        }
+
+        socket.on('connect', () => {
+            document.getElementById('espStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+            document.getElementById('espStatusLabel').innerText = 'الخادم: متصل';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('espStatusDot').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+            document.getElementById('espStatusLabel').innerText = 'الخادم: غير متصل';
+        });
+
+        function renderTelemetry(data) {
+            if (!data) return;
+
+            // Update KPIs
+            document.getElementById('kpiPassRate').innerText = (data.pass_rate !== undefined ? data.pass_rate.toFixed(1) : '100') + '%';
+            document.getElementById('kpiTotalCount').innerText = (data.total_inspections || 0).toLocaleString();
+            document.getElementById('kpiDefectCount').innerText = (data.defective_bottles || 0).toLocaleString();
+            document.getElementById('fpsDisplay').innerText = (data.fps || 0).toFixed(1) + ' FPS';
+
+            // Update Chart
+            if (qualityChart && data.total_inspections > 0) {
+                qualityChart.data.datasets[0].data = [data.good_bottles, data.defective_bottles];
+                qualityChart.update();
+            }
+
+            // Defect Details
+            if (data.defect_counts) {
+                document.getElementById('defectCapCount').innerText = data.defect_counts['cap missing'] || 0;
+                document.getElementById('defectPlasticCount').innerText = data.defect_counts['damaged plastic'] || 0;
+                document.getElementById('defectLabelCount').innerText = data.defect_counts['label missing'] || 0;
+            }
+
+            // Sync threshold with server if user isn't actively sliding
+            if (data.distance_threshold !== undefined && !isUserAdjustingSlider) {
+                const serverThresh = parseFloat(data.distance_threshold);
+                if (Math.abs(serverThresh - activeDistanceThreshold) > 0.5) {
+                    activeDistanceThreshold = serverThresh;
+                    const slider = document.getElementById('thresholdSlider');
+                    if (slider) slider.value = serverThresh;
+                    const disp = document.getElementById('thresholdDisplay');
+                    if (disp) disp.innerText = `≤ ${serverThresh.toFixed(0)} cm`;
+                }
+            }
+
+            // Ultrasonic Real-Time Telemetry
+            const rawDist = data.hardware?.distance_cm;
+            const dist = (rawDist !== undefined && rawDist !== null) ? Number(rawDist) : 999.0;
+            const distEl = document.getElementById('ultrasonicDistance');
+            const unitEl = document.getElementById('ultrasonicUnit');
+            const barEl = document.getElementById('ultrasonicBar');
+            const badgeEl = document.getElementById('ultrasonicBadge');
+            const badgeTextEl = document.getElementById('ultrasonicBadgeText');
+            const badgeDotEl = document.getElementById('ultrasonicDot');
+            const hintEl = document.getElementById('ultrasonicStatusHint');
+            const stationText = document.getElementById('stationStatusText');
+
+            if (dist > 0 && dist < 400.0) {
+                // Actual reading in centimeters!
+                distEl.innerText = dist.toFixed(1);
+                if (unitEl) unitEl.style.display = 'inline';
+
+                if (dist <= activeDistanceThreshold && dist > 1.0) {
+                    // Object / Bottle / Hand detected in station
+                    const pct = Math.min(100, Math.max(8, (dist / activeDistanceThreshold) * 100));
+                    if (barEl) {
+                        barEl.style.width = pct + '%';
+                        barEl.className = 'bg-emerald-500 h-3 rounded-full transition-all duration-150';
+                    }
+                    if (badgeEl) badgeEl.className = 'text-[11px] font-bold px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 transition-all flex items-center gap-1.5';
+                    if (badgeDotEl) badgeDotEl.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-ping';
+                    if (badgeTextEl) badgeTextEl.innerText = 'تم رصد عبوة';
+                    if (hintEl) hintEl.innerText = `رصد فعال: ${dist.toFixed(1)} cm`;
+                    if (stationText) stationText.innerText = 'العبوة / اليد أمام الحساس داخل النطاق 🎯';
+                } else {
+                    // Empty path / outside threshold
+                    const maxScale = Math.max(activeDistanceThreshold * 1.5, 60.0);
+                    const pct = Math.min(100, Math.max(8, (dist / maxScale) * 100));
+                    if (barEl) {
+                        barEl.style.width = pct + '%';
+                        barEl.className = 'bg-indigo-600 h-3 rounded-full transition-all duration-150';
+                    }
+                    if (badgeEl) badgeEl.className = 'text-[11px] font-bold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 transition-all flex items-center gap-1.5';
+                    if (badgeDotEl) badgeDotEl.className = 'w-2 h-2 rounded-full bg-indigo-500';
+                    if (badgeTextEl) badgeTextEl.innerText = 'المسار خالي';
+                    if (hintEl) hintEl.innerText = `المسافة: ${dist.toFixed(1)} cm`;
+                    if (stationText) stationText.innerText = 'جاهز لاستقبال الزجاجة القادمة';
+                }
+            } else {
+                // Out of range or standby timeout
+                distEl.innerText = '--.-';
+                if (unitEl) unitEl.style.display = 'inline';
+                if (barEl) {
+                    barEl.style.width = '100%';
+                    barEl.className = 'bg-slate-300 dark:bg-slate-600 h-3 rounded-full transition-all duration-150';
+                }
+                if (badgeEl) badgeEl.className = 'text-[11px] font-bold px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1.5';
+                if (badgeDotEl) badgeDotEl.className = 'w-2 h-2 rounded-full bg-amber-500';
+                if (badgeTextEl) badgeTextEl.innerText = 'بانتظار قراءة';
+                if (hintEl) hintEl.innerText = 'خارج النطاق (>80cm)';
+                if (stationText) stationText.innerText = 'حساس المسافة بانتظار اقتراب عبوة...';
+            }
+
+            // Decision Logic & Sound Trigger
+            if (currentDashboardMode !== 'inspect' || document.getElementById('staticInspectImage').classList.contains('hidden')) {
+                const decText = document.getElementById('decisionText');
+                const decDot = document.getElementById('decisionDot');
+                
+                document.getElementById('confidenceLabel').innerText = (data.current_confidence || 0).toFixed(1) + '%';
+                document.getElementById('latencyLabel').innerText = (data.processing_time_ms || 0).toFixed(0) + 'ms';
+
+                // Detect state change for Audio & Hardware Buzzer triggers
+                if (data.current_decision !== previousDecision) {
+                    if (data.current_decision === 'FAIL') {
+                        playAlertSound();
+                        fetch('/api/hardware/buzzer?duration_ms=250', { method: 'POST' }).catch(() => {});
+                    } else if (data.current_decision === 'PASS') {
+                        playClickSound(); 
+                    }
+                    previousDecision = data.current_decision;
+                }
+
+                if (data.current_decision === 'STANDBY' || (!data.bottle_in_station && (dist > 25.0 || dist >= 900))) {
+                    decText.innerText = 'في الانتظار (لا توجد عبوة)';
+                    decText.className = 'text-base font-black tracking-tight text-slate-400 dark:text-slate-500';
+                    decDot.className = 'w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-600 ring-4 ring-slate-100 dark:ring-slate-700';
+                } else if (data.current_decision === 'FAIL') {
+                    decText.innerText = `FAIL: ${data.current_defect || 'عيب مصنعي'}`;
+                    decText.className = 'text-base font-black tracking-tight text-rose-600 dark:text-rose-400';
+                    decDot.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-100 dark:ring-rose-900/50';
+                } else if (data.current_decision === 'PASS') {
+                    decText.innerText = 'DECISION: PASS (سليمة)';
+                    decText.className = 'text-base font-black tracking-tight text-emerald-600 dark:text-emerald-400';
+                    decDot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-900/50';
+                } else {
+                    decText.innerText = 'الحالة: قيد الفحص...';
+                    decText.className = 'text-base font-black tracking-tight text-slate-600 dark:text-slate-300';
+                    decDot.className = 'w-3.5 h-3.5 rounded-full bg-slate-400 ring-4 ring-slate-100 dark:ring-slate-700';
+                }
+            }
+
+            // Sync Switches
+            updateToggleUI('AutoMode', data.auto_mode !== undefined ? data.auto_mode : true);
+            const motorOn = data.hardware?.motor === 'ON' || data.hardware?.motor === true;
+            updateToggleUI('Motor', motorOn);
+            const lightOn = data.hardware?.relay === 'ON' || data.hardware?.relay === true || data.hardware?.box_light === 'ON';
+            updateToggleUI('Light', lightOn);
+
+            // Hardware Connection Status
+            const isEspOnline = data.hardware?.esp32 === 'ONLINE';
+            if(isEspOnline) {
+                document.getElementById('espStatusLabel').innerText = 'ESP32: متصل بالخادم';
+            }
+
+            // Update Live Inspection History Table
+            if (data.logs && Array.isArray(data.logs) && data.logs.length > 0) {
+                const tbody = document.getElementById('inspectionLogsTableBody');
+                const badge = document.getElementById('logCountBadge');
+                if (badge) badge.innerText = `${data.logs.length} عمليات`;
+                if (tbody) {
+                    tbody.innerHTML = data.logs.map(log => {
+                        const isPass = log.decision === 'PASS';
+                        const badgeClass = isPass 
+                            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' 
+                            : 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800';
+                        const confVal = log.confidence ? `${Math.round(log.confidence * (log.confidence <= 1 ? 100 : 1))}%` : '—';
+                        return `
+                            <tr class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors">
+                                <td class="py-2.5 px-3 font-mono text-slate-500 dark:text-slate-400">${log.timestamp || log.time || '—'}</td>
+                                <td class="py-2.5 px-3">
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${badgeClass}">
+                                        ${log.decision}
+                                    </span>
+                                </td>
+                                <td class="py-2.5 px-3 font-bold ${isPass ? 'text-slate-700 dark:text-slate-200' : 'text-rose-600 dark:text-rose-400'}">
+                                    ${log.defect_type || log.defect || 'مطابق للمواصفات'}
+                                </td>
+                                <td class="py-2.5 px-3 font-mono text-indigo-600 dark:text-indigo-400">${confVal}</td>
+                                <td class="py-2.5 px-3 text-slate-400 text-[11px]">${log.camera_source || 'live'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+
+        socket.on('telemetry_update', (data) => {
+            renderTelemetry(data);
+        });
+
+        // Fast Fallback Polling (Every 250ms) to ensure continuous live updates
+        setInterval(async () => {
+            if (!socket.connected) {
+                try {
+                    const res = await fetch('/api/stats');
+                    if (res.ok) {
+                        const data = await res.json();
+                        renderTelemetry(data);
+                    }
+                } catch (e) {}
+            }
+        }, 250);
+
+        // Toggle UI Helper
+        function updateToggleUI(name, isActive) {
+            const btn = document.getElementById(`toggle${name}`);
+            const knob = document.getElementById(`knob${name}`);
+            if (!btn || !knob) return;
+
+            if (isActive) {
+                btn.classList.remove('bg-slate-200', 'dark:bg-slate-600');
+                btn.classList.add('bg-indigo-600');
+                knob.classList.remove('translate-x-0.5', 'mr-0');
+                knob.classList.add('translate-x-5.5', 'mr-0.5');
+            } else {
+                btn.classList.remove('bg-indigo-600');
+                btn.classList.add('bg-slate-200', 'dark:bg-slate-600');
+                knob.classList.remove('translate-x-5.5', 'mr-0.5');
+                knob.classList.add('translate-x-0.5', 'mr-0');
+            }
+        }
+
+        // Hardware Controls
+        async function handleAutoModeToggle() {
+            playClickSound();
+            await fetch('/api/mode', { method: 'POST' });
+        }
+
+        async function handleMotorToggle() {
+            playClickSound();
+            const action = document.getElementById('toggleMotor').classList.contains('bg-indigo-600') ? 'off' : 'on';
+            await fetch('/api/hardware/motor', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: action})
+            });
+        }
+
+        async function handleLightToggle() {
+            playClickSound();
+            const action = document.getElementById('toggleLight').classList.contains('bg-indigo-600') ? 'off' : 'on';
+            await fetch('/api/hardware/relay', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: action})
+            });
+        }
+
+        async function triggerManualReject() {
+            playClickSound();
+            await fetch('/api/hardware/servo', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'reject'})
+            });
+            showToast("تم إطلاق ذراع الطرد (Reject Sweep) 🦾");
+            // Auto-return home after 1.2 seconds to prevent blocking conveyor
+            setTimeout(async () => {
+                await fetch('/api/hardware/servo', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action: 'home'})
+                });
+            }, 1200);
+        }
+
+        async function resetSystemStats() {
+            if (!confirm("هل تريد تصفير جميع عدادات الفحص؟")) return;
+            playClickSound();
+            await fetch('/api/reset_stats', { method: 'POST' });
+            showToast("تم تصفير العدادات بنجاح");
+        }
+
+        // =========================================================================
+        // --- 6. Seamless Mode Switching (Live SCADA vs Manual AI Inspection) -----
+        // =========================================================================
+        let currentDashboardMode = 'live'; // 'live' or 'inspect'
+        let selectedManualFile = null;
+
+        function switchDashboardMode(mode) {
+            playClickSound();
+            currentDashboardMode = mode;
+
+            const btnLive = document.getElementById('btnModeLive');
+            const btnInspect = document.getElementById('btnModeInspect');
+            const liveControls = document.getElementById('liveControlsContainer');
+            const inspectControls = document.getElementById('inspectControlsContainer');
+            const liveAction = document.getElementById('liveActionStrip');
+            const inspectAction = document.getElementById('inspectActionStrip');
+            const videoBadge = document.getElementById('videoSourceBadge');
+            const videoStatusDot = document.getElementById('videoStatusDot');
+
+            if (mode === 'live') {
+                // Style Active Pill
+                btnLive.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all bg-indigo-600 text-white shadow-sm';
+                btnInspect.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400';
+
+                // Display Panels
+                liveControls.classList.remove('hidden');
+                inspectControls.classList.add('hidden');
+                liveAction.classList.remove('hidden');
+                inspectAction.classList.add('hidden');
+
+                // Video Container
+                document.getElementById('mainVideoFeed').classList.remove('hidden');
+                document.getElementById('staticInspectImage').classList.add('hidden');
+                if (videoBadge) videoBadge.innerText = 'صندوق الفحص الذكي (Vision Chamber)';
+                if (videoStatusDot) videoStatusDot.className = 'w-2 h-2 rounded-full bg-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.8)]';
+
+                showToast("🔴 تم التبديل إلى: البث المباشر الحي (SCADA)");
+            } else {
+                // Style Active Pill
+                btnInspect.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all bg-indigo-600 text-white shadow-sm';
+                btnLive.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400';
+
+                // Display Panels
+                liveControls.classList.add('hidden');
+                inspectControls.classList.remove('hidden');
+                liveAction.classList.add('hidden');
+                inspectAction.classList.remove('hidden');
+
+                if (videoBadge) videoBadge.innerText = 'وضع الفحص اليدوي (AI Image Inspection)';
+                if (videoStatusDot) videoStatusDot.className = 'w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]';
+
+                showToast("🔬 تم التبديل إلى: الفحص اليدوي للصور (AI Vision)");
+            }
+        }
+
+        // =========================================================================
+        // --- 7. Manual Upload & File Selection Logic -----------------------------
+        // =========================================================================
+        function setupDragAndDrop() {
+            const zone = document.getElementById('uploadDropZone');
+            if (!zone) return;
+
+            ['dragenter', 'dragover'].forEach(name => {
+                zone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    zone.classList.add('border-indigo-500', 'bg-indigo-50/50', 'dark:bg-indigo-950/20');
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(name => {
+                zone.addEventListener(name, (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    zone.classList.remove('border-indigo-500', 'bg-indigo-50/50', 'dark:bg-indigo-950/20');
+                });
+            });
+
+            zone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                    processSelectedFile(files[0]);
+                }
+            });
+        }
+
+        function handleManualFileSelect(event) {
+            const files = event.target.files;
+            if (files && files.length > 0) {
+                processSelectedFile(files[0]);
+            }
+        }
+
+        function processSelectedFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast("⚠️ يرجى اختيار ملف صورة صالح (JPG, PNG)");
+                return;
+            }
+
+            playClickSound();
+            selectedManualFile = file;
+
+            // Update Selected File Pill
+            const infoEl = document.getElementById('selectedFileInfo');
+            const thumbEl = document.getElementById('selectedFileThumb');
+            const nameEl = document.getElementById('selectedFileName');
+            const sizeEl = document.getElementById('selectedFileSize');
+            const btnAnalyze = document.getElementById('btnAnalyzeUpload');
+
+            thumbEl.src = URL.createObjectURL(file);
+            nameEl.innerText = file.name;
+            sizeEl.innerText = (file.size / 1024).toFixed(1) + ' KB';
+
+            infoEl.classList.remove('hidden');
+            btnAnalyze.removeAttribute('disabled');
+
+            document.getElementById('inspectStatusText').innerText = `تم اختيار: ${file.name}`;
+            showToast("📁 تم تجهيز الصورة للفحص");
+        }
+
+        function clearSelectedFile(event) {
+            if (event) event.stopPropagation();
+            playClickSound();
+            selectedManualFile = null;
+            document.getElementById('manualFileInput').value = '';
+            document.getElementById('selectedFileInfo').classList.add('hidden');
+            document.getElementById('btnAnalyzeUpload').setAttribute('disabled', 'true');
+            document.getElementById('inspectStatusText').innerText = 'جاهز لاستقبال الصور أو التقاط لقطة';
+        }
+
+        // =========================================================================
+        // --- 8. AI Analysis Trigger (Upload & ESP32-CAM) -------------------------
+        // =========================================================================
+        async function analyzeUploadedImage() {
+            if (!selectedManualFile) return;
+
+            playClickSound();
+            const btn = document.getElementById('btnAnalyzeUpload');
+            const btnText = document.getElementById('btnAnalyzeUploadText');
+            const overlay = document.getElementById('aiScanOverlay');
+            const overlayText = document.getElementById('aiScanOverlayText');
+
+            btn.setAttribute('disabled', 'true');
+            btnText.innerText = 'جارٍ الفحص بنموذج YOLO...';
+            overlayText.innerText = 'جارٍ تحليل الصورة المرفوعة بنموذج YOLOv8...';
+            overlay.classList.remove('hidden');
+
+            try {
+                const formData = new FormData();
+                formData.append('image', selectedManualFile);
+
+                const res = await fetch('/api/upload_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) throw new Error("فشل الخادم في معالجة الصورة");
+                const data = await res.json();
+                renderManualInspectionResult(data, 'صورة مرفوعة (Uploaded Image)');
+            } catch (err) {
+                console.error(err);
+                showToast("❌ خطأ أثناء فحص الصورة: " + err.message);
+            } finally {
+                overlay.classList.add('hidden');
+                btn.removeAttribute('disabled');
+                btnText.innerText = 'فحص الصورة بنموذج YOLO';
+            }
+        }
+
+        async function captureAndInspectEsp32() {
+            playClickSound();
+            const btn = document.getElementById('btnCaptureEsp32');
+            const btnText = document.getElementById('btnCaptureEsp32Text');
+            const overlay = document.getElementById('aiScanOverlay');
+            const overlayText = document.getElementById('aiScanOverlayText');
+            const flash = document.getElementById('cameraFlashOverlay');
+
+            // Snapshot Flash Effect
+            flash.classList.remove('hidden');
+            flash.classList.add('capture-flash-anim');
+            setTimeout(() => {
+                flash.classList.remove('capture-flash-anim');
+                flash.classList.add('hidden');
+            }, 350);
+
+            btn.setAttribute('disabled', 'true');
+            btnText.innerText = 'جارٍ الالتقاط والفحص...';
+            overlayText.innerText = 'جارٍ التقاط صورة فورية من ESP32-CAM وتحليلها...';
+            overlay.classList.remove('hidden');
+
+            try {
+                const res = await fetch('/api/capture_and_inspect', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+
+                if (!res.ok) throw new Error("تعذر التقاط لقطة من الكاميرا");
+                const data = await res.json();
+                renderManualInspectionResult(data, 'لقطة ESP32-CAM');
+            } catch (err) {
+                console.error(err);
+                showToast("❌ خطأ أثناء التقاط اللقطة: " + err.message);
+            } finally {
+                overlay.classList.add('hidden');
+                btn.removeAttribute('disabled');
+                btnText.innerText = 'التقاط لقطة فورية وفحصها';
+            }
+        }
+
+        function renderManualInspectionResult(data, sourceTitle) {
+            const staticImg = document.getElementById('staticInspectImage');
+            const liveImg = document.getElementById('mainVideoFeed');
+            const btnDownload = document.getElementById('btnDownloadInspect');
+            const decText = document.getElementById('decisionText');
+            const decDot = document.getElementById('decisionDot');
+            const confLabel = document.getElementById('confidenceLabel');
+            const latencyLabel = document.getElementById('latencyLabel');
+            const statusText = document.getElementById('inspectStatusText');
+
+            // 1. Display Annotated Image
+            if (data.image_base64) {
+                staticImg.src = data.image_base64;
+                staticImg.classList.remove('hidden');
+                liveImg.classList.add('hidden');
+                btnDownload.classList.remove('hidden');
+            }
+
+            // 2. Telemetry Labels
+            confLabel.innerText = (data.confidence || 0).toFixed(1) + '%';
+            latencyLabel.innerText = (data.processing_time_ms || 45).toFixed(0) + 'ms';
+
+            // 3. Floating Decision Card
+            const dec = data.decision || 'UNKNOWN';
+            if (dec === 'PASS') {
+                decText.innerText = 'DECISION: PASS (سليمة)';
+                decText.className = 'text-base font-black tracking-tight text-emerald-600 dark:text-emerald-400';
+                decDot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-100 dark:ring-emerald-900/50';
+                playClickSound();
+            } else if (dec === 'FAIL') {
+                decText.innerText = `FAIL: ${data.defect_type || 'عيب مصنعي'}`;
+                decText.className = 'text-base font-black tracking-tight text-rose-600 dark:text-rose-400';
+                decDot.className = 'w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-100 dark:ring-rose-900/50';
+                playAlertSound();
+            } else if (dec === 'REVIEW') {
+                decText.innerText = `REVIEW: ${data.defect_type || 'غير مؤكد'}`;
+                decText.className = 'text-base font-black tracking-tight text-amber-600 dark:text-amber-400';
+                decDot.className = 'w-3.5 h-3.5 rounded-full bg-amber-500 ring-4 ring-amber-100 dark:ring-amber-900/50';
+                playAlertSound();
+            }
+
+            // 4. Status Strip
+            statusText.innerText = `${sourceTitle}: ${dec} ${data.defect_type ? ' - (' + data.defect_type + ')' : ''}`;
+
+            // 5. Detections Breakdown in Right Column
+            const detContainer = document.getElementById('manualDetectionsContainer');
+            const detCount = document.getElementById('manualDetectionsCount');
+            const detList = document.getElementById('manualDetectionsList');
+
+            if (data.detections && data.detections.length > 0) {
+                detCount.innerText = data.detections.length;
+                detList.innerHTML = data.detections.map(d => {
+                    const isDefect = d.class !== 'normal' && d.class !== 'good';
+                    const badgeClass = isDefect ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
+                    return `
+                        <div class="flex items-center justify-between p-2 rounded-xl border ${badgeClass} text-xs font-bold">
+                            <span class="truncate">${d.class}</span>
+                            <span class="font-mono number-font">${(d.confidence * 100).toFixed(1)}%</span>
+                        </div>
+                    `;
+                }).join('');
+                detContainer.classList.remove('hidden');
+            } else {
+                detCount.innerText = '0';
+                detList.innerHTML = `<p class="text-xs text-slate-400 italic py-1">لا توجد عناصر مكتشفة</p>`;
+                detContainer.classList.remove('hidden');
+            }
+
+            showToast(`🎯 تم إكمال الفحص: ${dec}`);
+        }
+
+        function resetManualInspect() {
+            playClickSound();
+            document.getElementById('staticInspectImage').classList.add('hidden');
+            document.getElementById('mainVideoFeed').classList.remove('hidden');
+            document.getElementById('btnDownloadInspect').classList.add('hidden');
+            document.getElementById('manualDetectionsContainer').classList.add('hidden');
+            clearSelectedFile();
+            showToast("تمت إعادة التعيين والعودة للبث المباشر");
+        }
+
+        function downloadInspectedImage() {
+            playClickSound();
+            const staticImg = document.getElementById('staticInspectImage');
+            if (!staticImg.src) return;
+
+            const a = document.createElement('a');
+            a.href = staticImg.src;
+            a.download = `SmartBottle_Inspection_${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showToast("📥 جاري تنزيل الصورة المفحوصة");
+        }
+
+        // Initialize state on load
+        handleCameraSourceChange();
+        setupDragAndDrop();
+    </script>
+</body>
+</html>
