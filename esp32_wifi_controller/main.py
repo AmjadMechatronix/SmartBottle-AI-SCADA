@@ -1,20 +1,20 @@
 """
 =============================================================================
-Smart Bottle Inspection System - ESP32 Network / Wi-Fi Controller Firmware
+SmartBottle™ AI Vision SCADA - فيرموير متحكم الواي فاي الشبكي (ESP32 Network Firmware)
 =============================================================================
-Board: ESP32 (NodeMCU / DevKit v1)
-Language: MicroPython
-Network: Wi-Fi (SSID: Future2027) + HTTP REST API Server
-Fallback: USB Serial UART (115200 baud)
-
-Hardware Responsibilities:
-  1. Wi-Fi Connection & HTTP REST Server (Port 80)
-  2. Conveyor DC Motor (L298N / Driver on GPIO 22)
-  3. Additional Industrial Relay (GPIO 25)
-  4. Reject Servo Motor (SG90 / MG995 / MG996R on GPIO 23)
-  5. Ultrasonic Sensor (HC-SR04 on Trig 19, Echo 21)
-  6. Status LEDs: Green (GPIO 2), Red (GPIO 4), Blue (GPIO 5)
-  7. Buzzer Alarm (GPIO 18)
+المواصفات التقنية:
+  البوردة: ESP32 (NodeMCU / DevKit v1)
+  لغة البرمجة: MicroPython
+  الشبكة: Wi-Fi محلي (SSID: Future2027) + خادم ويب REST API خفيف (Port 80)
+  قناة الطوارئ البديلة: USB Serial UART (115200 Baud)
+  
+المسؤوليات الهندسية والعتاد:
+  1. الاتصال اللاسلكي بشبكة المصنع وتوفير خادم HTTP REST API مصغر.
+  2. استقبال أوامر الاستدلال (PASS, FAIL, REVIEW) عبر طلبات HTTP GET/POST سريعة.
+  3. التحكم المباشر بمحرك السير الناقل (GPIO 22) والسيرفو الميكانيكي (GPIO 23).
+  4. التحكم بريليه إضافي صناعي (GPIO 25) لتشغيل مضخات أو إضاءة الصندوق.
+  5. حساس المسافة بالموجات فوق الصوتية HC-SR04 (Trig 19, Echo 21).
+  6. مؤشرات الليدات الملونة (Green 2, Red 4, Blue 5) وصافرة التنبيه (Buzzer 18).
 =============================================================================
 """
 
@@ -26,49 +26,51 @@ import uselect
 from machine import Pin, PWM, time_pulse_us
 
 # =============================================================================
-# 🌐 WI-FI NETWORK CONFIGURATION
+# 🌐 إعدادات الاتصال بشبكة الواي فاي (Wi-Fi Configuration)
 # =============================================================================
 WIFI_SSID = "Future2027"
 WIFI_PASS = ""  # شبكة مفتوحة بدون كلمة سر
-SERVER_PORT = 80
+SERVER_PORT = 80  # المنفذ القياسي لخادم الـ HTTP
 
 # =============================================================================
-# 📌 PIN CONFIGURATION
+# 📌 جدول توصيل أطراف العتاد (Hardware Pinout Mapping)
 # =============================================================================
-LED_GREEN_PIN = 2   # Green LED (PASS)
-LED_RED_PIN   = 4   # Red LED (FAIL / Alarm)
-LED_BLUE_PIN  = 5   # Blue LED (REVIEW)
+LED_GREEN_PIN = 2   # ليد أخضر (PASS - مطابقة تامة)
+LED_RED_PIN   = 4   # ليد أحمر (FAIL - إنذار وعيب)
+LED_BLUE_PIN  = 5   # ليد أزرق (REVIEW - مراجعة بشرية)
 
-BUZZER_PIN    = 18  # Alarm Buzzer (+)
-TRIG_PIN      = 19  # Ultrasonic Trigger
-ECHO_PIN      = 21  # Ultrasonic Echo
+BUZZER_PIN    = 18  # صافرة التنبيه الصوتية (+)
+TRIG_PIN      = 19  # مخرج نبضة إطلاق الألتراسونيك
+ECHO_PIN      = 21  # مدخل نبضة ارتداد الألتراسونيك (عبر مقسم جهد)
 
-MOTOR_PIN     = 22  # Conveyor Motor Driver IN / Signal
-SERVO_PIN     = 23  # Reject Servo PWM
-RELAY_PIN     = 25  # Additional Relay (e.g. Pump / Light / Valve)
+MOTOR_PIN     = 22  # إشارة التحكم بمحرك السير الناقل (IN1)
+SERVO_PIN     = 23  # نبضة PWM لمحرك السيرفو لطرد المعيب
+RELAY_PIN     = 25  # ريليه إضافي صناعي (إضاءة الصندوق أو صمام هوائي)
 
 # =============================================================================
-# ⚙️ SERVO PWM CALIBRATION (50Hz)
+# ⚙️ ضبط نبضات السيرفو (Servo PWM Timing 50Hz)
 # =============================================================================
 SERVO_FREQ         = 50
-DUTY_HOME_0_DEG    = 1638  # ~0.5ms (Home / Normal pass position)
-DUTY_REJECT_90_DEG = 4915  # ~1.5ms (Reject angle)
-DUTY_MAX_180_DEG   = 8192  # ~2.5ms
+DUTY_HOME_0_DEG    = 1638  # 0 درجة: وضع البداية للسماح بالمرور
+DUTY_REJECT_90_DEG = 4915  # 90 درجة: زاوية طرد الزجاجة المعيبة
+DUTY_MAX_180_DEG   = 8192  # 180 درجة: أقصى مدى
 
 # =============================================================================
-# 🚀 HARDWARE INITIALIZATION
+# 🚀 تهيئة منافذ العتاد (Hardware Peripherals Initialization)
 # =============================================================================
 led_green = Pin(LED_GREEN_PIN, Pin.OUT, value=0)
 led_red   = Pin(LED_RED_PIN, Pin.OUT, value=0)
 led_blue  = Pin(LED_BLUE_PIN, Pin.OUT, value=0)
 
 buzzer = Pin(BUZZER_PIN, Pin.OUT, value=0)
-# Additional Relay / Box Light Setup (GPIO 25)
+
+# تهيئة الريليه الإضافي (Active HIGH)
 RELAY_ACTIVE_LOW = False
 relay = Pin(RELAY_PIN, Pin.OUT)
 relay_state = False
 
 def set_box_light(state_on):
+    """التحكم بتشغيل وإطفاء الريليه الصناعي."""
     global relay_state
     relay_state = state_on
     if RELAY_ACTIVE_LOW:
@@ -76,11 +78,16 @@ def set_box_light(state_on):
     else:
         relay.value(1 if state_on else 0)
 
-set_box_light(False) # Default: Light OFF
+set_box_light(False)  # مطفأ افتراضياً
 
+# تهيئة حساس الألتراسونيك
 trig = Pin(TRIG_PIN, Pin.OUT, value=0)
 echo = Pin(ECHO_PIN, Pin.IN)
 
+# تهيئة محرك السير الناقل
+motor = Pin(MOTOR_PIN, Pin.OUT, value=1)
+
+# تهيئة محرك السيرفو ووضعه في زاوية البداية
 servo_pwm = PWM(Pin(SERVO_PIN), freq=SERVO_FREQ)
 servo_pwm.duty_u16(DUTY_HOME_0_DEG)
 
@@ -90,19 +97,20 @@ servo_state = "HOME"
 reject_active = False
 reject_start_time = 0
 
-# Serial Poller
+# مقاطع قراءة المنفذ التسلسلي السلكي كقناة طوارئ بديلة
 serial_poll = uselect.poll()
 serial_poll.register(sys.stdin, uselect.POLLIN)
 
 # =============================================================================
-# 📶 WI-FI CONNECTION ROUTINE
+# 📶 روتين الاتصال بشبكة Wi-Fi (Wi-Fi Connection Routine)
 # =============================================================================
 wlan = network.WLAN(network.STA_IF)
 
 def connect_wifi():
+    """الاتصال التلقائي بنقطة الوصول اللاسلكية واستخراج عنوان IP."""
     wlan.active(True)
     if not wlan.isconnected():
-        print(f"📡 Connecting to Wi-Fi: {WIFI_SSID}...")
+        print(f"📡 جارٍ الاتصال بشبكة الواي فاي: {WIFI_SSID}...")
         wlan.connect(WIFI_SSID, WIFI_PASS)
         attempts = 0
         while not wlan.isconnected() and attempts < 25:
@@ -117,27 +125,29 @@ def connect_wifi():
     if wlan.isconnected():
         ip_info = wlan.ifconfig()
         print("=" * 55)
-        print("✅ Wi-Fi Connected Successfully!")
-        print(f"🎯 ESP32 Controller IP: {ip_info[0]}")
-        print(f"🌐 REST API Base URL:  http://{ip_info[0]}/api/")
+        print("✅ تم الاتصال بالشبكة اللاسلكية بنجاح!")
+        print(f"🎯 عنوان IP للمتحكم: {ip_info[0]}")
+        print(f"🌐 رابط REST API الأساسي: http://{ip_info[0]}/api/")
         print("=" * 55)
         led_blue.value(1)
         time.sleep_ms(500)
         led_blue.value(0)
         return ip_info[0]
     else:
-        print("⚠️ Failed to connect to Wi-Fi. Operating in Serial-only mode.")
+        print("⚠️ تعذر الاتصال بالواي فاي، سيعمل النظام عبر السلك التسلسلي فقط.")
         return None
 
 # =============================================================================
-# 🛠️ HARDWARE DRIVER FUNCTIONS
+# 🛠️ دوال تشغيل العتاد (Hardware Driver Functions)
 # =============================================================================
 def set_leds(green=False, red=False, blue=False):
+    """التحكم بالليدات الثلاثة معاً."""
     led_green.value(1 if green else 0)
     led_red.value(1 if red else 0)
     led_blue.value(1 if blue else 0)
 
 def beep(duration_ms=150, freq=2500):
+    """إطلاق نغمة صوتية عبر الصافرة."""
     try:
         buzz_pwm = PWM(Pin(BUZZER_PIN), freq=freq)
         buzz_pwm.duty_u16(32768)
@@ -151,6 +161,7 @@ def beep(duration_ms=150, freq=2500):
         b_pin.value(0)
 
 def set_servo_angle(angle):
+    """توجيه ذراع السيرفو إلى زاوية معينة."""
     global servo_state
     if angle <= 0:
         servo_pwm.duty_u16(DUTY_HOME_0_DEG)
@@ -164,17 +175,20 @@ def set_servo_angle(angle):
         servo_state = f"ANGLE_{angle}"
 
 def servo_home():
+    """إرجاع السيرفو إلى زاوية الصفر لفتح مسار المرور."""
     global reject_active
     set_servo_angle(0)
     reject_active = False
 
 def trigger_reject(duration_ms=1200, angle=90):
+    """تفعيل ذراع السيرفو لطرد الزجاجة المعيبة بزاوية محددة."""
     global reject_active, reject_start_time
     set_servo_angle(angle)
     reject_active = True
     reject_start_time = time.ticks_ms()
 
 def read_distance_cm():
+    """قياس المسافة اللحظية بالسنتيمتر من حساس الألتراسونيك."""
     trig.value(0)
     time.sleep_us(2)
     trig.value(1)
@@ -188,8 +202,9 @@ def read_distance_cm():
         pass
     return 999.0
 
-# Inspection Routines
+# روتينات الاستجابة
 def actuate_pass():
+    """استجابة الزجاجة السليمة."""
     set_leds(green=True, red=False, blue=False)
     Pin(BUZZER_PIN, Pin.OUT, value=0)
     motor.value(1)
@@ -197,18 +212,21 @@ def actuate_pass():
     print("ACK:PASS")
 
 def actuate_fail(angle=90):
+    """استجابة الزجاجة المعيبة."""
     set_leds(green=False, red=True, blue=False)
     trigger_reject(duration_ms=1400, angle=angle)
     beep(250, 2600)
     print(f"ACK:FAIL:{angle}")
 
 def actuate_review():
+    """استجابة المراجعة."""
     set_leds(green=False, red=False, blue=True)
     buzzer.value(0)
     servo_home()
     print("ACK:REVIEW")
 
 def get_status_json():
+    """توليد حالة العتاد في هيئة JSON."""
     return (
         f'{{"esp32":"ONLINE","mode":"WIFI","ip":"{wlan.ifconfig()[0] if wlan.isconnected() else "NONE"}",'
         f'"distance_cm":{current_distance_cm},"bottle_detected":{str(bottle_detected).lower()},'
@@ -219,9 +237,10 @@ def get_status_json():
     )
 
 # =============================================================================
-# 📥 COMMAND PROCESSOR (Used by both HTTP and USB Serial)
+# 📥 معالج الأوامر الموحد (HTTP REST & Serial Processor)
 # =============================================================================
 def process_command(cmd):
+    """تفسير وتنفيذ الأوامر المستلمة سواء من شبكة الواي فاي أو السلك."""
     cmd = cmd.strip().upper()
     if not cmd:
         return "ERROR:EMPTY"
@@ -234,10 +253,8 @@ def process_command(cmd):
     elif cmd.startswith("FAIL") or cmd.startswith("REJECT") or cmd.startswith("ACTUATE_FAIL"):
         target_angle = 90
         if ":" in cmd:
-            try:
-                target_angle = int(cmd.split(":")[1])
-            except Exception:
-                target_angle = 90
+            try: target_angle = int(cmd.split(":")[1])
+            except Exception: target_angle = 90
         actuate_fail(angle=target_angle)
         return f"ACK:FAIL:{target_angle}"
     elif cmd.startswith("SERVO:") or cmd.startswith("SERVO_ANGLE:"):
@@ -295,24 +312,26 @@ def process_command(cmd):
         return "ERROR:UNKNOWN_CMD"
 
 # =============================================================================
-# 🌐 LIGHTWEIGHT HTTP REST API SERVER (Socket)
+# 🌐 خادم REST API المصغر (Lightweight Non-blocking Socket Server)
 # =============================================================================
 server_socket = None
 
 def init_http_server():
+    """تهيئة المقبس الشبكي Socket للاستماع للطلبات الواردة على المنفذ 80."""
     global server_socket
     try:
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('', SERVER_PORT))
         server_socket.listen(5)
-        server_socket.setblocking(False)
-        print(f"🚀 HTTP Server listening on port {SERVER_PORT}...")
+        server_socket.setblocking(False)  # تشغيل غير حاجب
+        print(f"🚀 خادم الويب يستمع الآن على المنفذ {SERVER_PORT}...")
     except Exception as e:
-        print(f"⚠️ HTTP Server init error: {e}")
+        print(f"⚠️ خطأ أثناء تهيئة خادم المقابس: {e}")
         server_socket = None
 
 def handle_http_clients():
+    """معالجة طلبات الـ HTTP الواردة من خادم بايثون عبر شبكة الواي فاي."""
     if server_socket is None:
         return
 
@@ -394,7 +413,7 @@ def handle_http_clients():
             pass
 
 # =============================================================================
-# 🔄 MAIN REAL-TIME SCHEDULING LOOP
+# 🔄 حلقة الجدولة الزمنية اللحظية (Real-Time Scheduling Loop)
 # =============================================================================
 connect_wifi()
 init_http_server()
@@ -402,26 +421,26 @@ init_http_server()
 last_ultrasonic_time = 0
 last_wifi_check = 0
 
-print("\n🎉 ESP32 Network Controller is fully running & ready for commands!")
+print("\n🎉 بوردة ESP32 Network Controller تعمل بكامل طاقتها وجاهزة لتلقي الأوامر!")
 
 while True:
     now = time.ticks_ms()
 
-    # 1. Handle HTTP Clients (Wireless REST Requests)
+    # 1. معالجة طلبات الـ HTTP اللاسلكية
     handle_http_clients()
 
-    # 2. Handle USB Serial Commands (Wired Fallback)
+    # 2. معالجة أوامر الـ USB التسلسلية السلكية
     if serial_poll.poll(0):
         line = sys.stdin.readline()
         if line:
             resp = process_command(line)
             print(resp)
 
-    # 3. Servo Auto-Return Timer (1.2 - 1.4s reject duration)
+    # 3. توقيت رجوع السيرفو التلقائي بعد انتهاء الطرد (1400ms)
     if reject_active and time.ticks_diff(now, reject_start_time) > 1400:
         servo_home()
 
-    # 4. Periodic Ultrasonic Sampling (Every 150ms)
+    # 4. قراءة دورية لحساس الألتراسونيك (كل 150ms)
     if time.ticks_diff(now, last_ultrasonic_time) > 150:
         last_ultrasonic_time = now
         d = read_distance_cm()
@@ -433,11 +452,11 @@ while True:
             bottle_detected = False
             print(f"EVENT:BOTTLE_CLEARED:{d}")
 
-    # 5. Periodic Wi-Fi Reconnect Watchdog (Every 10 seconds)
+    # 5. مراقب الاتصال بالواي فاي (Watchdog) لإعادة الاتصال التلقائي كل 10 ثوانٍ
     if time.ticks_diff(now, last_wifi_check) > 10000:
         last_wifi_check = now
         if not wlan.isconnected():
-            print("⚠️ Wi-Fi disconnected! Reconnecting...")
+            print("⚠️ انقطع اتصال الواي فاي، جارٍ إعادة الاتصال...")
             wlan.connect(WIFI_SSID, WIFI_PASS)
 
     time.sleep_ms(5)

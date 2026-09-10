@@ -1,14 +1,22 @@
 """
 =============================================================================
-SmartBottle™ AI Vision SCADA - Unified System Diagnostics & Test Suite
+SmartBottle™ AI Vision SCADA - حزمة الفحص والتشخيص الشامل (Unified Diagnostics)
 =============================================================================
-الاختبار الموحد الشامل لكافة أجزاء النظام:
-  1. الإعدادات والنموذج (Configuration & Model Check)
-  2. محرك اتخاذ القرار بالذكاء الاصطناعي (AI Decision Engine)
-  3. الهاردوير والمحاكاة الافتراضية (Hardware Controller & Simulation Fallback)
-  4. قاعدة البيانات وسجلات الفحص وتقارير الـ CSV (Database & KPI Metrics)
-  5. مسارات الويب وخادم الفحص (Flask Server & SCADA REST APIs)
-  6. مسارات برنامج التحكم الصناعي (LabVIEW Integration Endpoints)
+الوظيفة البرمجية والهندسية:
+  سكربت اختبار آلي موحد يتحقق من سلامة كافة مكونات النظام قبل التشغيل في المصنع:
+  
+  [TEST 1] الإعدادات وملف النموذج:
+           التحقق من صحة ملف config.py ووجود ملف أوزان الذكاء الاصطناعي best.pt.
+  [TEST 2] محرك اتخاذ القرار (AI Decision Engine):
+           اختبار حالات الاستدلال الثلاث (PASS, FAIL, REVIEW) والتأكد من أولوية العيوب.
+  [TEST 3] متحكم العتاد ونظام المحاكاة الذكي (Hardware & Virtual Fallback):
+           اختبار استجابة المشغلات (الليدات، السيرفو، السير الناقل، وريليه الإضاءة).
+  [TEST 4] قاعدة البيانات ومؤشرات الـ KPIs وتقارير الـ CSV:
+           التحقق من حساب نسب الجودة السليمة ونسب العيوب، وتوليد ملف الـ CSV.
+  [TEST 5] خادم Flask وواجهات برمجة التطبيقات (REST APIs):
+           فحص سلامة مسارات الويب وعمل الواجهة في بيئة الاختبار (Flask Test Client).
+  [TEST 6] نقاط تكامل برنامج التحكم الصناعي National Instruments LabVIEW:
+           التحقق من صحة مسار الـ Telemetry المسطح وبث لقطات الكاميرا JPEG المباشرة.
 =============================================================================
 """
 
@@ -17,7 +25,7 @@ import os
 import json
 import time
 
-# Ensure UTF-8 output on Windows terminal
+# ضبط ترميز الطرفية على أنظمة ويندوز لدعم نصوص UTF-8 العربية والرموز التعبيرية
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
@@ -26,7 +34,7 @@ print("🚀 SMARTBOTTLE™ AI SCADA - الاختبار التشخيصي الشا
 print("=" * 70)
 
 # =============================================================================
-# [TEST 1] التحقق من ملف الإعدادات والنموذج
+# [TEST 1] التحقق من ملف الإعدادات ووجود أوزان النموذج
 # =============================================================================
 print("\n[TEST 1/6] ⚙️  فحص الإعدادات وتكوين النموذج (Configuration Check)...")
 try:
@@ -44,13 +52,14 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# [TEST 2] فحص محرك اتخاذ القرار (AI Decision Engine)
+# [TEST 2] فحص محرك اتخاذ القرار (AI Decision Engine Test)
 # =============================================================================
 print("\n[TEST 2/6] 🧠 فحص محرك اتخاذ القرار (Decision Engine Test)...")
 try:
     from ai.decision_engine import DecisionEngine
     engine = DecisionEngine()
 
+    # إنشاء كائنات محاكاة (Mock Objects) لمربعات YOLO لاختبار منطق القرار بدقة
     class MockItem:
         def __init__(self, val): self.val = val
         def item(self): return self.val
@@ -64,20 +73,20 @@ try:
             self.cls = MockTensor(cls_id)
             self.conf = MockTensor(conf)
 
-    # 1. اختبار زجاجة سليمة (PASS)
+    # 1. اختبار حالة الزجاجة السليمة المطابقة (PASS)
     boxes_pass = [MockBox(0, 0.88), MockBox(1, 0.92), MockBox(4, 0.85)]
     res_pass = engine.evaluate(boxes_pass, config.CLASS_NAMES)
     print(f"   🔹 اختبار زجاجة سليمة: القرار={res_pass.decision} (ثقة: {res_pass.confidence:.2f})")
     assert res_pass.decision == "PASS", f"المتوقع PASS لكن النتيجة: {res_pass.decision}"
 
-    # 2. اختبار زجاجة معيبة (FAIL - غطاء مفقود)
+    # 2. اختبار حالة الزجاجة المعيبة (FAIL - غطاء مفقود)
     boxes_fail = [MockBox(0, 0.85), MockBox(2, 0.78)]
     res_fail = engine.evaluate(boxes_fail, config.CLASS_NAMES)
     print(f"   🔹 اختبار زجاجة معيبة: القرار={res_fail.decision} (العيب: {res_fail.defect_type})")
     assert res_fail.decision == "FAIL", f"المتوقع FAIL لكن النتيجة: {res_fail.decision}"
     assert res_fail.defect_type == "cap missing"
 
-    # 3. اختبار زجاجة بثقة منخفضة (REVIEW)
+    # 3. اختبار حالة الشك وعدم التأكد (REVIEW - ثقة منخفضة)
     boxes_rev = [MockBox(0, 0.42)]
     res_rev = engine.evaluate(boxes_rev, config.CLASS_NAMES)
     print(f"   🔹 اختبار حالة غير مؤكدة: القرار={res_rev.decision}")
@@ -89,7 +98,7 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# [TEST 3] فحص متحكم الهاردوير والمحاكاة الافتراضية
+# [TEST 3] فحص متحكم العتاد ونظام المحاكاة الذكي (Hardware & Virtual Fallback)
 # =============================================================================
 print("\n[TEST 3/6] 🔌 فحص متحكم الهاردوير ونظام المحاكاة الذكي (Hardware Controller)...")
 try:
@@ -99,7 +108,7 @@ try:
     mode_str = "محاكاة افتراضية (Virtual)" if st.get("is_simulated") else f"جهاز حقيقي ({st.get('port')})"
     print(f"   🔹 وضع التشغيل الحالي: {mode_str}")
 
-    # اختبار إشارة النجاح (PASS)
+    # اختبار إشارة المطابقة (PASS): ليد أخضر + دوران السير + السيرفو في وضع البداية
     hw.actuate_pass()
     st = hw.get_status()
     assert st["led"] == "GREEN", "يجب أن يضيء الليد الأخضر عند PASS"
@@ -107,14 +116,14 @@ try:
     assert st["servo"] == "HOME", "يجب أن يكون السيرفو في وضع HOME"
     print("   🔹 اختبار إشارة PASS (ليد أخضر + سيرفو وضع البداية): سليم")
 
-    # اختبار إشارة العيب (FAIL)
+    # اختبار إشارة العيب (FAIL): ليد أحمر + حركة السيرفو لطرد الزجاجة
     hw.actuate_fail()
     st = hw.get_status()
     assert st["led"] == "RED", "يجب أن يضيء الليد الأحمر عند FAIL"
     assert "REJECT" in str(st["servo"]), "يجب أن يتحرك السيرفو لطرد العيب"
     print("   🔹 اختبار إشارة FAIL (ليد أحمر + حركة السيرفو لطرد العيب): سليم")
 
-    # اختبار ريليه إضاءة الصندوق (Relay Box Light)
+    # اختبار ريليه إضاءة الصندوق (Relay Box Light ON / OFF)
     hw.relay_on()
     st = hw.get_status()
     assert st["relay"] is True
@@ -123,7 +132,7 @@ try:
     assert st["relay"] is False
     print("   🔹 اختبار ريليه الإضاءة (Relay ON / OFF): سليم")
 
-    # إعادة التعيين
+    # إعادة التعيين لوضع الاستعداد
     hw.reset()
     print("   ✅ نجح اختبار الهاردوير واستجابة الأوامر بالكامل!")
 except Exception as e:
@@ -131,7 +140,7 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# [TEST 4] فحص قاعدة البيانات وتصدير الـ CSV
+# [TEST 4] فحص قاعدة البيانات وتوليد التقارير (Database & KPI Metrics)
 # =============================================================================
 print("\n[TEST 4/6] 📊 فحص سجل عمليات الفحص وإحصائيات KPIs (Database & CSV)...")
 try:
@@ -139,7 +148,7 @@ try:
     db = InspectionLogger()
     db.clear()
 
-    # تسجيل عمليات تجريبية
+    # تسجيل عمليات تجريبية في قاعدة البيانات
     db.log("PASS", 0.94, "bottle", None, "test_cam", 20.5)
     db.log("FAIL", 0.89, "cap missing", "cap missing", "test_cam", 19.2)
     db.log("REVIEW", 0.45, "damaged plastic", "damaged plastic", "test_cam", 22.0)
@@ -147,10 +156,12 @@ try:
     logs = db.get_recent(10)
     assert len(logs) == 3, f"المتوقع 3 سجلات، وُجد {len(logs)}"
 
+    # فحص دقة حساب الـ KPIs
     kpi = db.get_summary_stats()
     print(f"   🔹 إجمالي الفحوصات: {kpi['total']} | نسبة الجودة: {kpi['yield_rate']}% | نسبة العيوب: {kpi['defect_rate']}%")
     assert kpi["passed"] == 1 and kpi["defects"] == 1 and kpi["review"] == 1
 
+    # فحص توليد ملف الـ CSV
     csv_data = db.export_csv_stream()
     assert "Inspection ID" in csv_data
     assert "cap missing" in csv_data
@@ -161,39 +172,39 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# [TEST 5] فحص مسارات خادم Flask وواجهة SCADA
+# [TEST 5] فحص مسارات خادم Flask وواجهة SCADA (Flask REST APIs)
 # =============================================================================
 print("\n[TEST 5/6] 🌐 فحص مسارات خادم الويب وواجهة SCADA (Flask REST APIs)...")
 try:
     from server import app
     client = app.test_client()
 
-    # 1. الصفحة الرئيسية
+    # 1. فحص مسار الواجهة الرئيسية (Index)
     r = client.get('/')
     assert r.status_code == 200, f"خطأ في الصفحة الرئيسية: {r.status_code}"
     assert b"SmartBottle" in r.data
     print("   🔹 مسار الواجهة الرئيسية [/]: متصل (200 OK)")
 
-    # 2. مسار الإحصائيات الحية
+    # 2. فحص مسار الإحصائيات التليمترية الحية
     r = client.get('/api/stats')
     assert r.status_code == 200
     data = json.loads(r.data)
     assert "total_inspections" in data and "hardware" in data
     print("   🔹 مسار الإحصائيات التليمترية [/api/stats]: متصل ومرجع للبيانات")
 
-    # 3. مسار تغيير وضع التشغيل
+    # 3. فحص مسار تغيير وضع التشغيل (Auto/Manual)
     r = client.post('/api/mode', json={"auto_mode": True})
     assert r.status_code == 200
     print("   🔹 مسار وضع التشغيل الآلي [/api/mode]: يعمل بنجاح")
 
-    # 4. مسارات التحكم بالعتاد عبر الـ Web
+    # 4. فحص مسارات التحكم بالعتاد عبر الويب
     r_motor = client.post('/api/hardware/motor', json={"action": "on"})
     r_servo = client.post('/api/hardware/servo', json={"action": "home"})
     r_led = client.post('/api/hardware/led', json={"color": "green"})
     assert r_motor.status_code == 200 and r_servo.status_code == 200 and r_led.status_code == 200
     print("   🔹 مسارات التحكم بالعتاد [/api/hardware/*]: تستقبل وتنفذ الأوامر")
 
-    # 5. مسار تصدير CSV
+    # 5. فحص مسار تحميل تقرير الـ CSV
     r_csv = client.get('/api/export_csv')
     assert r_csv.status_code == 200
     assert r_csv.mimetype == "text/csv"
@@ -205,7 +216,7 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# [TEST 6] فحص نقاط تكامل LabVIEW
+# [TEST 6] فحص نقاط تكامل برنامج LabVIEW الصناعي (LabVIEW Dedicated Endpoints)
 # =============================================================================
 print("\n[TEST 6/6] 🏭 فحص نقاط تكامل برنامج التحكم الصناعي (LabVIEW Endpoints)...")
 try:
@@ -230,7 +241,7 @@ except Exception as e:
     sys.exit(1)
 
 # =============================================================================
-# خلاصة النتيجة
+# خلاصة نتيجة الاختبار التشخيصي
 # =============================================================================
 print("\n" + "=" * 70)
 print("🎉 اكتمل الفحص الشامل بنجاح 100%! جميع مكونات النظام تعمل بتناغم تام.")

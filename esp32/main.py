@@ -1,25 +1,27 @@
 """
 =============================================================================
-Smart Bottle Inspection System - ESP32 MicroPython Firmware
+SmartBottle™ AI Vision SCADA - فيرموير متحكم ESP32 (MicroPython Firmware)
 =============================================================================
-Board: ESP32 (NodeMCU / DevKit v1)
-Language: MicroPython
-Communication: USB Serial UART (115200 baud)
-
-Hardware Responsibilities:
-  1. Ultrasonic Sensor (HC-SR04): Bottle proximity detection
-
-  2. Conveyor DC Motor: via L298N / Relay / MOSFET Driver
-
-  3. Reject Servo Motor: SG90 / MG995 / MG996R (PWM)
-
-  4. Status LEDs: Green (PASS), Red (FAIL), Blue (REVIEW/BUSY)
-
-  5. Buzzer: Audible alarm for defective bottles
-
-  6. Serial Protocol: Two-way command processing & telemetry
-
+المواصفات التقنية:
+  البوردة: ESP32 (NodeMCU / DevKit v1)
+  لغة البرمجة: MicroPython
+  قناة الاتصال: المنفذ التسلسلي السلكي USB Serial UART (115200 Baud)
   
+المسؤوليات والوظائف الهندسية:
+  1. حساس المسافة بالموجات فوق الصوتية (HC-SR04):
+     رصد اقتراب الزجاجات بدقة عالية ومزامنة توقيت الفحص مع الكاميرا.
+  2. محرك السير الناقل (Conveyor DC Motor):
+     التحكم في تشغيل وإيقاف السير عبر درايفر L298N أو موسفت.
+  3. محرك السيرفو لطرد المعيب (Reject Servo Motor):
+     توليد نبضات PWM بتردد 50Hz لدفع الزجاجات المعيبة بزاوية 90 درجة ثم الرجوع التلقائي.
+  4. ليدات الحالة الثلاثية (Status LEDs):
+     أخضر (مطابق PASS)، أحمر (معيب FAIL)، أزرق (مراجعة REVIEW).
+  5. صافرة الإنذار (Alarm Buzzer):
+     توليد ترددات صوتية تنبيهية فور اكتشاف أي عيب صناعي.
+  6. ريليه إضاءة صندوق الفحص (Box Light Relay):
+     تأمين الإضاءة المثالية لحجرة التصوير لضمان دقة الكشف.
+  7. معالج الأوامر التسلسلية غير الحاجب (Non-blocking Polling):
+     استقبال وتنفيذ الأوامر وتوليد بيانات التليمتري دون تجميد حلقة الحساس.
 =============================================================================
 """
 
@@ -29,61 +31,61 @@ import uselect
 from machine import Pin, PWM, time_pulse_us
 
 # =============================================================================
-# 📌 PIN CONFIGURATION (Matches your exact hardware wiring)
+# 📌 جدول التوصيل الكهربائي للعتاد (Hardware Pin Configuration)
 # =============================================================================
-# Status LEDs
-LED_GREEN_PIN = 2   # Green LED (PASS) - عبر مقاومة 220Ω
-LED_RED_PIN   = 4   # Red LED (FAIL / Alarm) - عبر مقاومة 220Ω
-LED_BLUE_PIN  = 5   # Blue LED (REVIEW / Processing) - عبر مقاومة 220Ω
+# 1. ليدات الحالة الثلاثية (عبر مقاومات حماية 220Ω)
+LED_GREEN_PIN = 2   # مؤشر المطابقة والنجاح (PASS)
+LED_RED_PIN   = 4   # مؤشر وجود عيب والإنذار (FAIL)
+LED_BLUE_PIN  = 5   # مؤشر المراجعة والمعالجة (REVIEW)
 
-# Alarm Buzzer
-BUZZER_PIN    = 18  # Active/Passive Buzzer (+)
+# 2. صافرة التنبيه الصوتية (Active / Passive Buzzer)
+BUZZER_PIN    = 18  # القطب الموجب للصافرة (+)
 
-# Ultrasonic Sensor (HC-SR04)
-# ⚠️ خط ECHO يدخل عبر Voltage Divider (مقسم جهد) لحماية مدخل ESP32 3.3V
-TRIG_PIN      = 19  # Trigger output
-ECHO_PIN      = 21  # Echo input (عبر Voltage Divider)
+# 3. حساس المسافة بالموجات فوق الصوتية (HC-SR04)
+# ⚠️ ملاحظة هندسية: خط ECHO يدخل عبر مقسم جهد (Voltage Divider) لحماية مدخل ESP32 (3.3V)
+TRIG_PIN      = 19  # مخرج نبضة الإرسال (Trigger)
+ECHO_PIN      = 21  # مدخل نبضة الاستقبال (Echo)
 
-# Conveyor Motor Driver (L298N / Relay / MOSFET)
-MOTOR_PIN     = 22  # Motor Driver IN / Signal
+# 4. محرك السير الناقل (L298N Motor Driver / Relay / MOSFET)
+MOTOR_PIN     = 22  # إشارة التحكم بتشغيل المحرك (IN1)
 
-# Reject Mechanism Servo Motor (SG90 / MG995 / MG996R)
-SERVO_PIN     = 23  # Servo Signal (PWM 50Hz)
+# 5. محرك السيرفو لفرز وطرد الزجاجات المعيبة (SG90 / MG995 / MG996R)
+SERVO_PIN     = 23  # سلك إشارة التحكم بالسيرفو (PWM 50Hz)
 
-# Inspection Box Light Relay
-BOX_LIGHT_PIN = 13  # Relay IN for Box Light (GPIO 25)
+# 6. ريليه إضاءة صندوق الفحص الصناعي (GPIO 13 / 25)
+BOX_LIGHT_PIN = 13  # إشارة تفعيل الريليه
 
 # =============================================================================
-# ⚙️ SERVO PWM CALIBRATION (50Hz = 20ms period)
+# ⚙️ معايرة نبضات السيرفو (Servo PWM Calibration - 50Hz = 20ms Period)
 # =============================================================================
+# في MicroPython، نطاق الدورة duty_u16 يتراوح من 0 إلى 65535
+# المحركات الشائعة (SG90/MG995) تستجيب لنبضات بين 0.5ms (0 درجة) و 2.5ms (180 درجة)
 SERVO_FREQ         = 50
-# MicroPython duty_u16 range: 0 - 65535
-# SG90 / MG995 typical pulses: 0.5ms (0 deg) to 2.5ms (180 deg)
-DUTY_HOME_0_DEG    = 1638  # ~0.5ms (Home / Normal pass position)
-DUTY_REJECT_90_DEG = 4915  # ~1.5ms (Reject angle / Push bottle)
-DUTY_MAX_180_DEG   = 8192  # ~2.5ms
+DUTY_HOME_0_DEG    = 1638  # ~0.5ms (وضع البداية / فتح مسار السير للزجاجة السليمة)
+DUTY_REJECT_90_DEG = 4915  # ~1.5ms (زاوية الرفض 90 درجة لدفع الزجاجة المعيبة)
+DUTY_MAX_180_DEG   = 8192  # ~2.5ms (أقصى زاوية 180 درجة)
 
 # =============================================================================
-# 🚀 HARDWARE INITIALIZATION
+# 🚀 تهيئة منافذ العتاد (Hardware Peripheral Setup)
 # =============================================================================
-# 1. LEDs Setup
+# تهيئة الليدات كمخارج رقمية بقيمة ابتدائية 0 (مطفأة)
 led_green = Pin(LED_GREEN_PIN, Pin.OUT, value=0)
 led_red   = Pin(LED_RED_PIN, Pin.OUT, value=0)
 led_blue  = Pin(LED_BLUE_PIN, Pin.OUT, value=0)
 
-# 2. Buzzer Setup
+# تهيئة الصافرة كمخرج رقمي
 buzzer = Pin(BUZZER_PIN, Pin.OUT, value=0)
 
-# 3. Motor Setup
-motor = Pin(MOTOR_PIN, Pin.OUT, value=1) # Default: Conveyor Running
+# تهيئة السير الناقل: القيمة الافتراضية 1 (شغال باستمرار لنقل الزجاجات)
+motor = Pin(MOTOR_PIN, Pin.OUT, value=1)
 
-# 3b. Box Light Relay Setup (GPIO 25)
-# Set to False because relay is Active HIGH (1 = ON, 0 = OFF)
+# تهيئة ريليه إضاءة الصندوق (Active HIGH: 1 = تشغيل، 0 = إطفاء)
 RELAY_ACTIVE_LOW = False
 box_light_relay = Pin(BOX_LIGHT_PIN, Pin.OUT)
 box_light_state = False
 
 def set_box_light(state_on):
+    """التحكم بتشغيل وإطفاء إضاءة صندوق الفحص."""
     global box_light_state
     box_light_state = state_on
     if RELAY_ACTIVE_LOW:
@@ -91,58 +93,61 @@ def set_box_light(state_on):
     else:
         box_light_relay.value(1 if state_on else 0)
 
-set_box_light(False) # Ensure light is OFF initially
+set_box_light(False)  # الإضاءة مطفأة افتراضياً عند الإقلاع
 
-# 4. Ultrasonic Sensor Setup
+# تهيئة حساس الألتراسونيك
 trig = Pin(TRIG_PIN, Pin.OUT, value=0)
 echo = Pin(ECHO_PIN, Pin.IN)
 
-# 5. Servo Setup
+# تهيئة إشارة الـ PWM لمحرك السيرفو ووضعه في زاوية البداية (Home)
 servo_pwm = PWM(Pin(SERVO_PIN), freq=SERVO_FREQ)
 servo_pwm.duty_u16(DUTY_HOME_0_DEG)
 
-# Global State
+# متغيرات الحالة الداخلية
 current_distance_cm = 999.0
-detect_threshold_cm = 45.0 # Default threshold (supports up to 45cm)
+detect_threshold_cm = 45.0  # عتبة رصد وجود زجاجة (بالسنتيمتر)
 bottle_detected = False
-servo_state = "HOME" # "HOME" or "REJECT"
+servo_state = "HOME"
 reject_start_time = 0
 reject_active = False
 
-# USB Serial Non-blocking Poller
+# مقاطع القراءة غير الحاجبة للمنفذ التسلسلي (uselect Poller)
 poll_obj = uselect.poll()
 poll_obj.register(sys.stdin, uselect.POLLIN)
 
 # =============================================================================
-# 🛠️ HARDWARE DRIVER FUNCTIONS
+# 🛠️ دوال تشغيل وحدات العتاد (Hardware Driver Routines)
 # =============================================================================
 def set_leds(green=False, red=False, blue=False):
+    """التحكم بحالة الليدات الثلاثة معاً."""
     led_green.value(1 if green else 0)
     led_red.value(1 if red else 0)
     led_blue.value(1 if blue else 0)
 
 def beep(duration_ms=150, freq=2500):
     """
-    🔊 Dual-Mode Buzzer Driver:
-    Supports both Passive Buzzers (requires PWM oscillating tone)
-    and Active Buzzers (DC/pulsed voltage).
+    مشغل الصافرة الهجين:
+    يدعم الصافرات السالبة (Passive Buzzer عبر توليد نغمة مربعة PWM)
+    والصافرات الموجبة (Active Buzzer عبر جهد رقمي نبضي).
     """
     try:
         buzz_pwm = PWM(Pin(BUZZER_PIN), freq=freq)
-        buzz_pwm.duty_u16(32768)  # 50% duty square wave
+        buzz_pwm.duty_u16(32768)  # دورة عمل 50%
         time.sleep_ms(duration_ms)
         buzz_pwm.deinit()
         Pin(BUZZER_PIN, Pin.OUT, value=0)
     except Exception:
-        # Fallback to standard digital HIGH
         b_pin = Pin(BUZZER_PIN, Pin.OUT)
         b_pin.value(1)
         time.sleep_ms(duration_ms)
         b_pin.value(0)
 
 def set_servo_angle(angle):
+    """
+    ضبط زاوية دوران السيرفو بدقة عبر الاستيفاء الخطي (Linear Interpolation).
+    الزاوية بين 0 و 180 درجة.
+    """
     global servo_state
-    # Angle in degrees (0 to 180)
     if angle <= 0:
         servo_pwm.duty_u16(DUTY_HOME_0_DEG)
         servo_state = "HOME"
@@ -150,23 +155,30 @@ def set_servo_angle(angle):
         servo_pwm.duty_u16(DUTY_MAX_180_DEG)
         servo_state = "MAX"
     else:
-        # Linear interpolation between 0 and 180 deg
         duty = int(DUTY_HOME_0_DEG + (angle / 180.0) * (DUTY_MAX_180_DEG - DUTY_HOME_0_DEG))
         servo_pwm.duty_u16(duty)
         servo_state = f"ANGLE_{angle}"
 
 def servo_home():
+    """إرجاع السيرفو إلى زاوية الصفر لفتح مسار السير الناقل."""
     global reject_active
     set_servo_angle(0)
     reject_active = False
 
 def trigger_reject(duration_ms=1200, angle=90):
+    """تفعيل ذراع السيرفو لضرب وطرد الزجاجة المعيبة مع توقيت رجوع آلي."""
     global reject_active, reject_start_time
     set_servo_angle(angle)
     reject_active = True
     reject_start_time = time.ticks_ms()
 
 def read_distance_cm():
+    """
+    قراءة المسافة بالسنتيمتر من حساس HC-SR04:
+      1. إرسال نبضة إطلاق مدتها 10 ميكروثانية على رجل Trig.
+      2. قياس زمن ارتداد النبضة على رجل Echo بالمايكروثانية.
+      3. حساب المسافة اعتماداً على سرعة الصوت (343 م/ث): المسافة = (الزمن * 0.0343) / 2.
+    """
     samples = []
     for _ in range(3):
         trig.value(0)
@@ -190,30 +202,32 @@ def read_distance_cm():
     return 999.0
 
 # =============================================================================
-# 🚦 HIGH-LEVEL INSPECTION ACTUATION ROUTINES
+# 🚦 روتينات الاستجابة الصناعية (Inspection Actuation Routines)
 # =============================================================================
 def actuate_pass():
+    """الزجاجة سليمة: ليد أخضر، إيقاف الصافرة، استمرار دوران السير، والسيرفو في وضع المرور."""
     set_leds(green=True, red=False, blue=False)
     Pin(BUZZER_PIN, Pin.OUT, value=0)
-    motor.value(1) # Keep conveyor moving
+    motor.value(1)
     servo_home()
     print("ACK:PASS")
 
 def actuate_fail(angle=90):
+    """الزجاجة معيبة: ليد أحمر، نغمة إنذار صوتية، وتفعيل ذراع السيرفو لرفض الزجاجة."""
     set_leds(green=False, red=True, blue=False)
     trigger_reject(duration_ms=1400, angle=angle)
-    # Auditory alert tone
     beep(250, 2600)
     print(f"ACK:FAIL:{angle}")
 
 def actuate_review():
+    """حالة غير مؤكدة: ليد أزرق، السماح بمرورها للفحص البشري دون تعطيل السير."""
     set_leds(green=False, red=False, blue=True)
     buzzer.value(0)
-    # In review, we do not reject blindly; allow bottle to pass or stop for manual check
     servo_home()
     print("ACK:REVIEW")
 
 def get_status_json():
+    """توليد سلسلة JSON مصغرة تلخص حالة كافة الحساسات والمشغلات."""
     return (
         f'{{"esp32":"ONLINE","distance_cm":{current_distance_cm},'
         f'"bottle_detected":{str(bottle_detected).lower()},'
@@ -228,9 +242,10 @@ def get_status_json():
     )
 
 # =============================================================================
-# 📥 SERIAL COMMAND PROTOCOL PROCESSOR
+# 📥 معالج بروتوكول الأوامر التسلسلية (Serial Command Protocol Processor)
 # =============================================================================
 def process_command(cmd):
+    """تفسير وتنفيذ الأوامر النصية الواردة عبر المنفذ التسلسلي من خادم بايثون."""
     cmd = cmd.strip().upper()
     if not cmd:
         return
@@ -242,10 +257,8 @@ def process_command(cmd):
     elif cmd.startswith("FAIL") or cmd.startswith("REJECT"):
         target_angle = 90
         if ":" in cmd:
-            try:
-                target_angle = int(cmd.split(":")[1])
-            except Exception:
-                target_angle = 90
+            try: target_angle = int(cmd.split(":")[1])
+            except Exception: target_angle = 90
         actuate_fail(angle=target_angle)
     elif cmd.startswith("SERVO:") or cmd.startswith("SERVO_ANGLE:"):
         try:
@@ -284,7 +297,6 @@ def process_command(cmd):
         set_leds(green=False, red=False, blue=False)
         print("ACK:LEDS_OFF")
     elif cmd == "BUZZER":
-        # Multi-chirp tone (2400Hz then 3200Hz) - audible on passive & active buzzers
         beep(140, 2400)
         time.sleep_ms(50)
         beep(140, 3200)
@@ -319,12 +331,14 @@ def process_command(cmd):
         print(f"ERR:UNKNOWN_CMD:{cmd}")
 
 # =============================================================================
-# 🔄 MAIN REAL-TIME SYSTEM LOOP
+# 🔄 حلقة التشغيل اللحظية الرئيسية (Main Real-Time Executive Loop)
 # =============================================================================
 print("SMART_BOTTLE_ESP32_READY")
-set_leds(green=True, red=True, blue=True) # Startup test blink
+
+# إشارة ترحيب ضوئية عند الإقلاع
+set_leds(green=True, red=True, blue=True)
 time.sleep_ms(300)
-set_leds(green=True, red=False, blue=False) # Ready state
+set_leds(green=True, red=False, blue=False)  # مؤشر الجاهزية
 
 last_sensor_read_time = 0
 last_telemetry_time = 0
@@ -332,17 +346,16 @@ last_telemetry_time = 0
 while True:
     now = time.ticks_ms()
 
-    # 1. Non-blocking Serial Input Check
+    # 1. قراءة غير حاجبة للأوامر التسلسلية الواردة عبر USB
     if poll_obj.poll(0):
         line = sys.stdin.readline()
         if line:
             process_command(line)
 
-    # 2. Periodic Ultrasonic Reading (Every 60ms)
+    # 2. قراءة دورية لحساس الألتراسونيك (كل 60ms)
     if time.ticks_diff(now, last_sensor_read_time) >= 60:
         dist = read_distance_cm()
         current_distance_cm = dist
-        # Bottle threshold dynamically matched with detect_threshold_cm
         new_bottle_detected = (1.0 < current_distance_cm <= detect_threshold_cm)
         if new_bottle_detected != bottle_detected:
             bottle_detected = new_bottle_detected
@@ -352,14 +365,14 @@ while True:
                 print("EVENT:BOTTLE_CLEARED")
         last_sensor_read_time = now
 
-    # 3. Continuous Distance Synchronization (Every 100ms for fast real-time updates)
+    # 3. بث قراءة المسافة اللحظية كل 100ms لتحديث واجهة SCADA وراسم الإشارة
     if time.ticks_diff(now, last_telemetry_time) >= 100:
         print("DISTANCE:{:.1f}".format(current_distance_cm))
         last_telemetry_time = now
 
-    # 4. Servo Auto-Return Timing Check
+    # 4. التحقق من توقيت رجوع ذراع السيرفو التلقائي بعد انتهاء الطرد (1200ms)
     if reject_active and time.ticks_diff(now, reject_start_time) >= 1200:
         servo_home()
 
-    # Small delay to keep CPU cool while maintaining responsiveness
+    # تأخير دقيق للحفاظ على برودة المعالج مع الحفاظ على سرعة الاستجابة اللحظية
     time.sleep_ms(10)

@@ -1,61 +1,134 @@
 """
 =============================================================================
-Smart Bottle Inspection System - Global Configuration
+SmartBottle™ AI Vision SCADA - ملف الإعدادات العامة (Global Configuration)
 =============================================================================
-Centralized settings for AI, Camera, Decision Engine, and Hardware Integration.
+هذا الملف هو المرجع المركزي لكافة إعدادات المشروع البرمجية والهندسية:
+  1. إعدادات نموذج الذكاء الاصطناعي YOLOv8 وعتبات الثقة.
+  2. مصادر الكاميرات المدعومة وروابط البث (Webcam, ESP32-CAM, IP-Cam).
+  3. إعدادات الاتصال بمتحكم العتاد ESP32 (منفذ USB Serial و شبكة Wi-Fi).
+  4. زوايا وتوقيتات السيرفو وحساس المسافة بالموجات فوق الصوتية (HC-SR04).
+  5. وضع التشغيل الافتراضي للنظام (الآلي AUTO / اليدوي MANUAL).
+=============================================================================
 """
 
 import os
 
-# ==========================================
-# 1. AI Vision & YOLO Settings
-# ==========================================
+# =============================================================================
+# 1. إعدادات نموذج الرؤية الحاسوبية والذكاء الاصطناعي (AI Vision & YOLO)
+# =============================================================================
+# مسار ملف أوزان النموذج المدرب بنجاح على تمييز الزجاجات وعيوبها
 MODEL_PATH = "best.pt"
+
+# عتبة الثقة الافتراضية للكشف (Detection Confidence Threshold)
+# أي جسم يكتشفه النموذج بنسبة ثقة أقل من 35% يتم تجاهله كضوضاء
 YOLO_CONFIDENCE_DEFAULT = 0.35
+
+# عتبة تقاطع الاتحاد (Intersection Over Union - IoU) لإزالة المربعات المتكررة (NMS)
 YOLO_IOU_THRESHOLD = 0.45
+
+# أبعاد الصورة المدخلة للنموذج (بالبكسل 640x640) وهي الدقة القياسية لـ YOLOv8
 YOLO_IMG_SIZE = 640
 
-# Normal vs Defect Class Mapping
+# تصنيف الفئات السليمة (Normal Classes): المكونات الطبيعية للزجاجة المطابقة
 NORMAL_CLASSES = ["bottle", "cap", "label"]
+
+# تصنيف فئات العيوب الصناعية (Defect Classes): العيوب التي تستوجب رفض الزجاجة
+# 1. cap missing: غياب الغطاء
+# 2. damaged plastic: كسر أو انبعاج في جسم الزجاجة
+# 3. label missing: غياب الملصق التجاري
 DEFECT_CLASSES = ["cap missing", "damaged plastic", "label missing"]
-CLASS_NAMES = {0: "bottle", 1: "cap", 2: "cap missing", 3: "damaged plastic", 4: "label", 5: "label missing"}
 
-# Decision Engine Confidence Thresholds
-CONFIDENCE_HIGH_THRESHOLD = 0.60   # >= 0.60 -> Definitive PASS / FAIL
-CONFIDENCE_LOW_THRESHOLD = 0.30    # < 0.30 -> Discard as noise; between 0.30 and 0.60 -> REVIEW
+# قاموس أرقام الفئات ومسمياتها وفق تدريب النموذج
+CLASS_NAMES = {
+    0: "bottle",            # جسم الزجاجة
+    1: "cap",               # الغطاء
+    2: "cap missing",       # عيب غياب الغطاء
+    3: "damaged plastic",   # عيب تلف البلاستيك
+    4: "label",             # الملصق
+    5: "label missing"      # عيب غياب الملصق
+}
 
-# ==========================================
-# 2. Camera Configuration
-# ==========================================
-# Supported sources: "webcam", "ipcam", "usb_typec", "esp32cam", "image"
+# -----------------------------------------------------------------------------
+# عتبات محرك اتخاذ القرار (Decision Engine Thresholds):
+# يعتمد النظام معمارية القرار الصناعي ثلاثي الحالات (Three-State Logic):
+#   - ثقة >= 0.60: قرار نهائي وحاسم (PASS إذا سليمة، أو FAIL إذا معيبة).
+#   - ثقة بين 0.30 و 0.60: حالة غير مؤكدة (REVIEW) تتطلب تدقيق المشغل البشري.
+#   - ثقة < 0.30: يتم تجاهلها كتشويش في الصورة.
+# -----------------------------------------------------------------------------
+CONFIDENCE_HIGH_THRESHOLD = 0.60   # عتبة التأكيد العالية
+CONFIDENCE_LOW_THRESHOLD = 0.30    # عتبة الاشتباه الدنيا
+
+# =============================================================================
+# 2. إعدادات الكاميرا ومصادر تدفق الفيديو (Camera Configuration)
+# =============================================================================
+# المصادر المدعومة:
+#   - "esp32cam": وحدة كاميرا ESP32 اللاسلكية عبر شبكة Wi-Fi
+#   - "webcam": كاميرا الويب المدمجة في الحاسوب (Built-in)
+#   - "usb_typec": كاميرا خارجية موصولة عبر منفذ USB Type-C (مثل DroidCam)
+#   - "ipcam": كاميرا هاتف أو كاميرا شبكية RTSP/HTTP
+#   - "image": نمط فحص الصور الثابتة
 DEFAULT_CAMERA_SOURCE = "esp32cam"
+
+# رقم مؤشر الكاميرا في النظام (0 للكاميرا الافتراضية، 1 أو 2 للكاميرات الخارجية)
 DEFAULT_CAMERA_INDEX = 0
+
+# رابط البث المباشر لكاميرا الهاتف أو الـ IP Cam
 DEFAULT_IP_CAM_URL = "http://192.168.0.133/stream"
+
+# رابط تدفق الفيديو المباشر لوحدة ESP32-CAM (نمط البث المستمر MJPEG)
 ESP32_CAM_STREAM_URL = "http://192.168.0.133/stream"
+
+# رابط التقاط صورة فورية فائقة الدقة من ESP32-CAM (نمط اللقطة الواحدة Snapshot)
 ESP32_CAM_CAPTURE_URL = "http://192.168.0.133/capture"
 
-# ==========================================
-# 3. ESP32 Hardware & Serial Configuration
-# ==========================================
-SERIAL_PORT = "AUTO"             # "AUTO" to auto-detect ESP32 port, or "COM3", "COM4", etc.
+# =============================================================================
+# 3. إعدادات الاتصال بمتحكم العتاد ESP32 (ESP32 Serial & Network Hardware)
+# =============================================================================
+# منفذ الاتصال التسلسلي:
+# "AUTO" للبحث التلقائي عن منفذ الـ COM الخاص بـ ESP32، أو تحديده يدوياً مثل "COM3", "COM5"
+SERIAL_PORT = "AUTO"
+
+# سرعة نقل البيانات التسلسلية (Baud Rate) القياسية لمتحكمات ESP32
 SERIAL_BAUDRATE = 115200
-SERIAL_TIMEOUT = 1.0             # seconds
-AUTO_RECONNECT_INTERVAL = 3.0   # seconds
 
-# Wireless Network Controller Settings (MicroPython Wi-Fi REST API)
-ESP32_CONTROLLER_IP = "http://192.168.0.134"  # Default IP for wireless controller
-ESP32_COMM_MODE = "AUTO"                      # "WIFI", "SERIAL", or "AUTO"
+# مهلة قراءة المنفذ التسلسلي بالثواني
+SERIAL_TIMEOUT = 1.0
 
-# Conveyor & Servo Actuation Timing (in seconds)
-SERVO_REJECT_ANGLE = 90        # Angle to push bottle to reject chute
-SERVO_HOME_ANGLE = 0            # Normal conveyor pass position
-REJECT_DURATION_SEC = 1.2       # Time servo stays in reject position
-MOTOR_DEFAULT_RUNNING = True    # Keep conveyor running by default
+# الفاصل الزمني لإعادة محاولة الاتصال التلقائي عند انقطاع السلك (بالثواني)
+AUTO_RECONNECT_INTERVAL = 3.0
 
-# Ultrasonic Sensor Thresholds
-BOTTLE_DETECT_DISTANCE_CM = 25.0 # Bottle considered present if distance <= 25.0 cm
+# عنوان الـ IP لمتحكم ESP32 في حالة الاتصال اللاسلكي (Wi-Fi REST Controller)
+ESP32_CONTROLLER_IP = "http://192.168.0.134"
 
-# ==========================================
-# 4. System Operating Modes
-# ==========================================
-AUTO_MODE = True                # In AUTO: Ultrasonic -> Capture -> YOLO -> Reject/Pass
+# نمط الاتصال بالمتحكم:
+#   - "AUTO": يفضل الاتصال عبر Wi-Fi إن وُجد، وإن لم يوجد يتحول تلقائياً للـ USB Serial
+#   - "SERIAL": الاتصال السلكي فقط عبر كابل USB
+#   - "WIFI": الاتصال اللاسلكي فقط عبر شبكة Wi-Fi
+ESP32_COMM_MODE = "AUTO"
+
+# =============================================================================
+# 4. إعدادات الحركة الميكانيكية وتوقيتات السير الناقل (Conveyor & Actuators)
+# =============================================================================
+# زاوية محرك السيرفو لطرد الزجاجة المعيبة إلى مسار الرفض (Reject Chute)
+SERVO_REJECT_ANGLE = 90
+
+# زاوية محرك السيرفو في الوضع الطبيعي للسماح بمرور الزجاجة السليمة (Home Position)
+SERVO_HOME_ANGLE = 0
+
+# مدة بقاء ذراع السيرفو ممتداً لدفع الزجاجة قبل الرجوع لوضع البداية (بالثواني)
+REJECT_DURATION_SEC = 1.2
+
+# حالة محرك السير الناقل الافتراضية (True = يعمل باستمرار لنقل الزجاجات)
+MOTOR_DEFAULT_RUNNING = True
+
+# مسافة رصد الزجاجة بواسطة حساس الألتراسونيك (HC-SR04):
+# إذا كانت المسافة المقروءة <= 25 سم، يُعتبر أن الزجاجة وصلت أمام الكاميرا تماماً
+BOTTLE_DETECT_DISTANCE_CM = 25.0
+
+# =============================================================================
+# 5. أوضاع تشغيل النظام (System Operating Modes)
+# =============================================================================
+# وضع التشغيل الآلي الكامل (AUTO_MODE):
+#   - True (الوضع الآلي): بمجرد وصول الزجاجة، يلتقط صورة، يفحص بـ YOLO، ويتخذ القرار ويحرك السيرفو تلقائياً.
+#   - False (الوضع اليدوي MANUAL): يعرض الفيديو فقط ويتيح للمشغل التحكم اليدوي بالأزرار.
+AUTO_MODE = True

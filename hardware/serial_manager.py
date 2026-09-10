@@ -1,10 +1,16 @@
 """
 =============================================================================
-Smart Bottle Inspection System - Hardware Serial Manager
+SmartBottle™ AI Vision SCADA - مدير الاتصال التسلسلي (Hardware Serial Manager)
 =============================================================================
-Manages low-level USB Serial connection with ESP32 (MicroPython).
-Includes automatic port detection, auto-reconnect thread, thread-safe I/O,
-and transparent virtual fallback mode when physical hardware is not connected.
+الوظيفة البرمجية والهندسية:
+  1. إدارة طبقة تجريد العتاد (Hardware Abstraction Layer - HAL) بين بايثون ومتحكم ESP32.
+  2. الاكتشاف التلقائي لمنفذ الاتصال (Auto Port Detection): فحص منافذ الـ COM والتعرف
+     على شرائح الـ USB-UART الشهيرة (CH340, CP2102, FTDI, Espressif).
+  3. خيط خلفي ذكي لإعادة الاتصال التلقائي (Auto-Reconnect Thread) دون تجميد الواجهة.
+  4. محاكاة العتاد الافتراضية الشفافة (Virtual Hardware Fallback Mode):
+     إذا لم يكن متحكم ESP32 موصولاً فيزيائياً بالحاسوب، يعمل النظام بنمط محاكاة ذكي
+     يحاكي الليدات، السيرفو، السير الناقل، والحساسات؛ مما يتيح تجربة النظام واختباره بالكامل.
+  5. معالجة الإشارات اللحظية وأحداث حساس الألتراسونيك واستدعاء الدوال التنبيهية (Callbacks).
 =============================================================================
 """
 
@@ -16,14 +22,21 @@ import serial
 import serial.tools.list_ports
 import config
 
+# تكوين مسجل الأحداث لطبقة الاتصال التسلسلي
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("SerialManager")
 
+
 class SerialManager:
+    """
+    فئة إدارة الاتصال التسلسلي ثنائية القنوات (Hardware + Virtual Simulation).
+    تعتمد نمط التصميم الأحادي (Singleton) مع أقفال التزامن لمنع التضارب في القراءة والكتابة.
+    """
     _instance = None
     _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
+        """ضمان إنشاء كائن وحيد مشترك لمدير الاتصال في كافة خيوط التطبيق."""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super(SerialManager, cls).__new__(cls)
@@ -35,6 +48,7 @@ class SerialManager:
             return
         self._initialized = True
 
+        # استيراد إعدادات المنفذ والسرعة
         self.configured_port = port or config.SERIAL_PORT
         self.baudrate = baudrate or config.SERIAL_BAUDRATE
         self.serial_conn = None
@@ -43,48 +57,54 @@ class SerialManager:
         self.is_running = True
         self.io_lock = threading.Lock()
 
-        # Telemetry Cache
+        # ذاكرة الحالة اللحظية للعتاد (Telemetry Cache)
         self.last_status = {
-            "esp32": "OFFLINE",
-            "distance_cm": 999.0,
-            "bottle_detected": False,
-            "motor": True,
-            "servo": "HOME",
-            "led_green": 0,
-            "led_red": 0,
-            "led_blue": 0,
-            "buzzer": 0,
-            "relay": False,
-            "box_light": "OFF",
-            "port": "NONE",
-            "is_simulated": False
+            "esp32": "OFFLINE",           # حالة الاتصال الفيزيائي
+            "distance_cm": 999.0,          # المسافة المقروءة من حساس الألتراسونيك
+            "bottle_detected": False,      # هل توجد زجاجة أمام الحساس حالياً
+            "motor": True,                 # حالة محرك السير الناقل (True = شغال)
+            "servo": "HOME",               # وضع محرك السيرفو ("HOME" أو "REJECT")
+            "led_green": 0,                # مؤشر النجاح الأخضر
+            "led_red": 0,                  # مؤشر العيب الأحمر
+            "led_blue": 0,                 # مؤشر المراجعة الأزرق
+            "buzzer": 0,                   # صافرة الإنذار الصوتية
+            "relay": False,                # ريليه إضاءة صندوق الفحص
+            "box_light": "OFF",            # حالة إضاءة الصندوق
+            "port": "NONE",                # اسم المنفذ الفعلي
+            "is_simulated": False          # هل النظام يعمل بنمط المحاكاة الافتراضية
         }
 
-        # Event Callbacks
+        # دوال الاستدعاء التنبيهية لأحداث وصول ومغادرة الزجاجة (Event Callbacks)
         self.distance_threshold = getattr(config, 'BOTTLE_DETECT_DISTANCE_CM', 50.0)
         self.on_bottle_detected_cb = None
         self.on_bottle_cleared_cb = None
 
-        # Start Background Reader & Reconnect Thread
+        # تشغيل خيط القراءة وإعادة الاتصال في الخلفية
         self.reader_thread = threading.Thread(target=self._connection_and_read_loop, daemon=True)
         self.reader_thread.start()
 
     def _find_esp32_port(self):
-        """Auto-detect ESP32 / USB Serial COM ports."""
+        """
+        البحث الذكي التلقائي عن منفذ COM المتصل به متحكم ESP32
+        عبر فحص معرفات العتاد وشرائح التحويل USB-to-UART.
+        """
         ports = serial.tools.list_ports.comports()
         for p in ports:
             desc = p.description.lower()
             hwid = p.hwid.lower()
-            # Common ESP32 USB-to-UART chips: CH340, CP210x, FTDI, USB Serial
+            # فحص الشرائح الشائعة في بوردات ESP32
             if any(k in desc or k in hwid for k in ["ch340", "cp210", "ftdi", "usb serial", "uart", "espressif"]):
                 return p.device
         if ports:
-            # Fallback to first available port if port description is generic
+            # إذا لم يتم التعرف على اسم الشريحة، يتم تجربة أول منفذ متاح كخيار بديل
             return ports[0].device
         return None
 
     def connect(self):
-        """Attempt to connect to physical ESP32."""
+        """
+        محاولة فتح قناة الاتصال التسلسلي مع متحكم ESP32 الحقيقي.
+        في حال تعذر ذلك، يتم التحول إلى نمط المحاكاة بسلاسة.
+        """
         with self.io_lock:
             if self.serial_conn and self.serial_conn.is_open:
                 return True
@@ -106,25 +126,26 @@ class SerialManager:
                     timeout=config.SERIAL_TIMEOUT,
                     write_timeout=config.SERIAL_TIMEOUT
                 )
-                time.sleep(1.5) # Wait for ESP32 boot/reset
+                time.sleep(1.5)  # انتظار إعادة إقلاع البوردة بعد الاتصال (DTR/RTS Reset)
                 self.active_port = target_port
                 self.is_connected = True
                 self.last_status["esp32"] = "ONLINE"
                 self.last_status["port"] = target_port
                 self.last_status["is_simulated"] = False
-                logger.info(f"✅ ESP32 Connected successfully on port: {target_port}")
+                logger.info(f"✅ تم الاتصال بنجاح بمتحكم ESP32 على المنفذ: {target_port}")
                 
-                # Test ping
+                # إرسال نبضة اختبار للتأكد من استجابة الميكروبايثون
                 self._send_raw("PING\n")
                 return True
             except Exception as e:
                 self.is_connected = False
                 self.last_status["esp32"] = "OFFLINE"
                 self.last_status["is_simulated"] = True
-                logger.warning(f"⚠️ Could not open serial port {target_port}: {e}")
+                logger.warning(f"⚠️ تعذر فتح المنفذ التسلسلي {target_port}: {e} (التحول لنمط المحاكاة)")
                 return False
 
     def disconnect(self):
+        """إغلاق المنفذ التسلسلي بأمان."""
         with self.io_lock:
             if self.serial_conn and self.serial_conn.is_open:
                 try:
@@ -136,24 +157,28 @@ class SerialManager:
             self.last_status["esp32"] = "OFFLINE"
 
     def _send_raw(self, data_str):
-        """Send string over serial connection."""
+        """إرسال سلسلة بايتات نصية مباشرة عبر المنفذ التسلسلي المفتوح."""
         if self.serial_conn and self.serial_conn.is_open:
             try:
                 self.serial_conn.write(data_str.encode("utf-8"))
                 self.serial_conn.flush()
                 return True
             except Exception as e:
-                logger.error(f"Serial write error: {e}")
+                logger.error(f"خطأ أثناء إرسال البيانات التسلسلية: {e}")
                 self.is_connected = False
                 self.last_status["esp32"] = "OFFLINE"
         return False
 
     def send_command(self, cmd):
-        """Thread-safe public command sender with virtual hardware fallback."""
+        """
+        الدالة العمومية لإرسال الأوامر مع دعم الحماية المزدوجة:
+        إذا كان العتاد موصولاً يتم إرسال الأمر الحقيقي وتحديث الحالة،
+        وإذا لم يكن موصولاً يتم تنفيذ الأمر في العتاد الافتراضي (Simulation).
+        """
         cmd = cmd.strip().upper()
-        logger.info(f"📡 Sending Hardware Command: {cmd}")
+        logger.info(f"📡 إرسال أمر للهاردوير: {cmd}")
 
-        # If physical ESP32 is connected, transmit over Serial
+        # في حال وجود اتصال فيزيائي نشط
         if self.is_connected:
             with self.io_lock:
                 success = self._send_raw(f"{cmd}\n")
@@ -161,12 +186,15 @@ class SerialManager:
                     self._simulate_hardware_command(cmd)
                     return {"status": "success", "mode": "hardware", "command": cmd}
 
-        # Virtual simulation fallback
+        # في حال العمل بنمط المحاكاة الافتراضية
         self._simulate_hardware_command(cmd)
         return {"status": "success", "mode": "simulated", "command": cmd}
 
     def _simulate_hardware_command(self, cmd):
-        """Update internal state in simulation mode when physical hardware is not present."""
+        """
+        تحديث الحالة الداخلية للنظام بنمط المحاكاة الذكي:
+        يتيح تجربة كافة وظائف SCADA بدقة متناهية دون الحاجة لعتاد حقيقي.
+        """
         if cmd == "PASS":
             self.last_status["led_green"] = 1
             self.last_status["led_red"] = 0
@@ -177,20 +205,23 @@ class SerialManager:
         elif cmd.startswith("FAIL") or cmd.startswith("REJECT"):
             ang = 90
             if ":" in cmd:
-                try: ang = int(cmd.split(":")[1])
-                except Exception: pass
+                try: 
+                    ang = int(cmd.split(":")[1])
+                except Exception: 
+                    pass
             self.last_status["led_green"] = 0
             self.last_status["led_red"] = 1
             self.last_status["led_blue"] = 0
             self.last_status["servo"] = f"REJECT_{ang}"
             self.last_status["buzzer"] = 1
-            # Simulate auto-return of servo
+            # محاكاة رجوع ذراع السيرفو تلقائياً بعد 1.2 ثانية
             threading.Timer(1.2, lambda: self.last_status.update({"servo": "HOME", "buzzer": 0})).start()
         elif cmd.startswith("SERVO:"):
             try:
                 ang = int(cmd.split(":")[1])
                 self.last_status["servo"] = f"ANGLE_{ang}"
-            except Exception: pass
+            except Exception: 
+                pass
         elif cmd == "REVIEW":
             self.last_status["led_green"] = 0
             self.last_status["led_red"] = 0
@@ -237,7 +268,11 @@ class SerialManager:
             self.last_status["motor"] = True
 
     def _connection_and_read_loop(self):
-        """Background thread handling continuous serial telemetry reading & auto-reconnect."""
+        """
+        خيط خلفي دائم (Daemon Thread):
+        يقوم بالقراءة المستمرة لبيانات التليمتري الواردة من ESP32،
+        وإعادة محاولة الاتصال التلقائي في حال انقطاع السلك.
+        """
         while self.is_running:
             if not self.is_connected:
                 self.connect()
@@ -252,29 +287,37 @@ class SerialManager:
                 else:
                     self.is_connected = False
             except Exception as e:
-                logger.warning(f"Serial read interrupted: {e}")
+                logger.warning(f"انقطع الاتصال التسلسلي مؤقتاً: {e}")
                 self.is_connected = False
                 self.last_status["esp32"] = "OFFLINE"
                 time.sleep(1.0)
 
     def _handle_incoming_telemetry(self, line):
-        """Parse events and status from ESP32."""
-        logger.info(f"📥 ESP32 RESP: {line}")
+        """
+        تحليل وتفكيك الرسائل الواردة من متحكم ESP32 (MicroPython Telemetry Parser).
+        """
+        logger.info(f"📥 استجابة من ESP32: {line}")
+        
+        # 1. حدث رصد وصول الزجاجة بواسطة الألتراسونيك
         if line == "EVENT:BOTTLE_DETECTED":
             self.last_status["bottle_detected"] = True
-            logger.info("🍼 EVENT: Bottle Detected by Ultrasonic Sensor")
+            logger.info("🍼 حدث: تم رصد وصول زجاجة إلى محطة الفحص")
             if self.on_bottle_detected_cb:
                 try:
                     self.on_bottle_detected_cb()
                 except Exception as e:
-                    logger.error(f"Error in on_bottle_detected callback: {e}")
+                    logger.error(f"خطأ في دالة on_bottle_detected: {e}")
+                    
+        # 2. حدث مغادرة الزجاجة
         elif line == "EVENT:BOTTLE_CLEARED":
             self.last_status["bottle_detected"] = False
             if self.on_bottle_cleared_cb:
                 try:
                     self.on_bottle_cleared_cb()
                 except Exception as e:
-                    logger.error(f"Error in on_bottle_cleared callback: {e}")
+                    logger.error(f"خطأ في دالة on_bottle_cleared: {e}")
+                    
+        # 3. بيانات الحالة المجمعة (JSON Status)
         elif line.startswith("STATUS:"):
             try:
                 json_str = line[7:]
@@ -284,12 +327,16 @@ class SerialManager:
                 self.last_status["is_simulated"] = False
             except Exception:
                 pass
+                
+        # 4. تأكيدات ريليه الإضاءة
         elif line in ["ACK:LIGHT_ON", "ACK:RELAY_ON"]:
             self.last_status["relay"] = True
             self.last_status["box_light"] = "ON"
         elif line in ["ACK:LIGHT_OFF", "ACK:RELAY_OFF"]:
             self.last_status["relay"] = False
             self.last_status["box_light"] = "OFF"
+            
+        # 5. قراءة المسافة اللحظية من حساس الألتراسونيك
         elif line.startswith("DISTANCE:"):
             try:
                 val = float(line.split(":")[1])
@@ -305,10 +352,12 @@ class SerialManager:
                 pass
 
     def get_status(self):
-        """Return current hardware status snapshot with standardized fields."""
+        """
+        استخراج لقطة حالة العتاد بتنسيق قياسي ومقروء للمشغل البشري وواجهات SCADA.
+        """
         st = dict(self.last_status)
         
-        # Computed human-friendly string fields
+        # تحويل القيم المنطقية إلى نصوص واضحة
         if isinstance(st.get("motor"), bool):
             st["motor"] = "ON" if st["motor"] else "OFF"
         

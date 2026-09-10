@@ -1,3 +1,25 @@
+"""
+=============================================================================
+SmartBottle™ AI Vision SCADA - الخادم الرئيسي والمحرك المركزي (Main SCADA Server)
+=============================================================================
+المعمارية الهندسية والوظائف:
+  1. خادم تطبيقات الويب RESTful المبني على إطار عمل Flask.
+  2. محرك الاتصال اللحظي فائق السرعة عبر تقنية WebSockets (Flask-SocketIO) بتردد 20Hz.
+  3. محرك معالجة بث الكاميرات (OpenCV Video Engine):
+     - دعم كاميرات الويب المدمجة (Webcam).
+     - دعم كاميرات الهواتف عبر منفذ USB Type-C (عبر برامج مثل DroidCam/Iriun).
+     - دعم كاميرات الشبكة والـ IP Cam (RTSP / HTTP).
+     - دعم وحدة ESP32-CAM بنمطين: البث المستمر (MJPEG Stream) واللقطة الفورية (Snapshot /capture).
+  4. استدلال الذكاء الاصطناعي في الوقت الفعلي (Real-Time YOLOv8 Inference).
+  5. بوابة التزامن المزدوجة بحساس الألتراسونيك (Ultrasonic Interlock Gate):
+     تضمن فحص كل زجاجة مرة واحدة فقط (One-Shot Inspection) عند وصولها للمحطة.
+  6. نقاط تكامل مخصصة لبرنامج التحكم الصناعي National Instruments LabVIEW:
+     - مسار JSON المسطح لفك البيانات في LabVIEW (/api/labview/telemetry).
+     - مسار استخراج الصور الخام المباشرة لبرامج الرؤية (/api/labview/snapshot.jpg).
+     - تحديث دوري للصور على القرص الصلب (C:/SmartBottle/labview_live.jpg/.bmp) بحماية ذرية (Atomic).
+=============================================================================
+"""
+
 import os
 import time
 import json
@@ -13,22 +35,33 @@ from flask import Flask, render_template, Response, request, jsonify, send_file
 from flask_socketio import SocketIO, emit
 from ultralytics import YOLO
 
+# استيراد ملف الإعدادات ووحدات النظام الفرعية
 import config
 from hardware.esp32_controller import ESP32Controller
 from ai.decision_engine import DecisionEngine
 from database.inspection_log import InspectionLogger
 
+# =============================================================================
+# 1. تهيئة تطبيق Flask وخادم المقابس اللحظية (Flask & SocketIO Initialization)
+# =============================================================================
 app = Flask(__name__, template_folder="templates", static_folder="static")
-app.config['SECRET_KEY'] = 'smartbottle_secret!'
+app.config['SECRET_KEY'] = 'smartbottle_secret_key_2026!'
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+# تفعيل SocketIO بنمط الخيوط المتعددة غير المتزامنة (Threading Mode)
 socketio = SocketIO(app, async_mode='threading', cors_allowed_origins="*")
 
-# تهيئة وحدات النظام الأساسية
+# إنشاء كائنات المتحكم، محرك القرار، وقاعدة البيانات
 esp32 = ESP32Controller()
 decision_engine = DecisionEngine()
 inspection_db = InspectionLogger()
 
+
 def normalize_digits(text):
+    """
+    تحويل الأرقام العربية/الفارسية (مثل: ١٩٢.١٦٨) إلى أرقام إنجليزية (192.168)
+    لمنع أخطاء إدخال عناوين الـ IP من لوحات المفاتيح في الهواتف.
+    """
     if not text:
         return ""
     arabic_digits = "٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹"
@@ -36,32 +69,45 @@ def normalize_digits(text):
     trans = str.maketrans(arabic_digits, english_digits)
     return text.translate(trans)
 
-# ==========================================
-# 1. إعدادات النموذج والمتغيرات العامة
-# ==========================================
+
+# =============================================================================
+# 2. تحميل نموذج الذكاء الاصطناعي YOLOv8 (Model Loading)
+# =============================================================================
 MODEL_PATH = config.MODEL_PATH
 if not os.path.exists(MODEL_PATH) and os.path.exists("best.pt"):
     MODEL_PATH = "best.pt"
 
-print(f"🚀 جارٍ تحميل النموذج من: {MODEL_PATH}")
+print(f"🚀 جارٍ تحميل نموذج الذكاء الاصطناعي من: {MODEL_PATH}")
 model = YOLO(MODEL_PATH)
 class_names = model.names
 print(f"✅ تم تحميل النموذج بنجاح! الفئات المعرفة: {class_names}")
 
+
+# =============================================================================
+# 3. إدارة الحالة العامة للنظام (System State Machine)
+# =============================================================================
 class SystemState:
+    """
+    مخزن الحالة المركزي لكافة متغيرات وإحصائيات النظام.
+    محمي بقفل تزامني (Threading Lock) لضمان سلامة البيانات بين كافة الخيوط.
+    """
     def __init__(self):
+        # عتبات كشف YOLO
         self.conf_threshold = config.YOLO_CONFIDENCE_DEFAULT
         self.iou_threshold = config.YOLO_IOU_THRESHOLD
+        
+        # إعدادات الكاميرا الحالية
         self.camera_active = True
         self.camera_index = config.DEFAULT_CAMERA_INDEX
-        self.current_source = config.DEFAULT_CAMERA_SOURCE # webcam, ipcam, usb_typec, video, phone_stream
+        self.current_source = config.DEFAULT_CAMERA_SOURCE  # webcam, ipcam, usb_typec, esp32cam, video
         self.ip_cam_url = config.DEFAULT_IP_CAM_URL
         self.video_file_path = None
-        self.distance_threshold = 50.0 # Default threshold in cm (supports hand testing & conveyor box)
+        self.distance_threshold = 50.0  # عتبة مسافة رصد الزجاجة (بالسنتيمتر)
         
-        # وضع التشغيل (Auto vs Manual)
+        # وضع التشغيل: True = آلي كامل (AUTO)، False = يدوي (MANUAL)
         self.auto_mode = config.AUTO_MODE
         
+        # الإحصائيات الحيوية للإنتاج
         self.total_frames = 0
         self.fps = 0.0
         self.total_inspections = 0
@@ -69,23 +115,25 @@ class SystemState:
         self.defective_bottles = 0
         self.review_bottles = 0
         self.defect_counts = {
-            "cap missing": 0,
-            "damaged plastic": 0,
-            "label missing": 0
+            "cap missing": 0,       # عداد عيوب غياب الغطاء
+            "damaged plastic": 0,   # عداد عيوب كسر/انبعاج البلاستيك
+            "label missing": 0      # عداد عيوب غياب الملصق
         }
         
-        # أحدث نتيجة استدلال
+        # أحدث قرار استدلال تم التوصل إليه
         self.current_decision = "READY"
         self.current_confidence = 0.0
         self.current_defect = None
         self.processing_time_ms = 0.0
         
+        # قفل التزامن ومتغيرات بوابة الفحص
         self.lock = threading.Lock()
         self.alert_active = False
-        self.bottle_in_station = False
-        self.bottle_inspected = False
+        self.bottle_in_station = False  # هل توجد زجاجة في محطة الفحص حالياً
+        self.bottle_inspected = False   # هل تم فحص الزجاجة الحالية بالفعل لمنع التكرار
 
     def reset_stats(self):
+        """إعادة تصفير كافة عدادات الإنتاج وسجلات الفحص."""
         with self.lock:
             self.total_inspections = 0
             self.good_bottles = 0
@@ -100,28 +148,42 @@ class SystemState:
             self.bottle_inspected = False
             inspection_db.clear()
 
+
 state = SystemState()
 
-# ربط مزامنة حساس المسافة بالموجات فوق الصوتية
+
+# =============================================================================
+# 4. مزامنة أحداث حساس الألتراسونيك (Ultrasonic Synchronization Callbacks)
+# =============================================================================
 def on_ultrasonic_bottle_detected():
-    print("🎯 [ULTRASONIC SYNC] Bottle arrived at inspection station!")
+    """تُستدعى فور رصد حساس المسافة لوصول زجاجة إلى حجرة الفحص."""
+    print("🎯 [ULTRASONIC SYNC] وصلت زجاجة إلى محطة الفحص!")
     with state.lock:
         state.bottle_in_station = True
-        state.bottle_inspected = False
+        state.bottle_inspected = False  # فتح بوابة الفحص لهذه الزجاجة الجديدة
+
 
 def on_ultrasonic_bottle_cleared():
-    print("💨 [ULTRASONIC SYNC] Bottle cleared from inspection station!")
+    """تُستدعى فور مغادرة الزجاجة لحجرة الفحص."""
+    print("💨 [ULTRASONIC SYNC] غادرت الزجاجة محطة الفحص!")
     with state.lock:
         state.bottle_in_station = False
         state.bottle_inspected = False
 
+
+# ربط الدوال التنبيهية بمدير الاتصال التسلسلي
 esp32.serial_manager.on_bottle_detected_cb = on_ultrasonic_bottle_detected
 esp32.serial_manager.on_bottle_cleared_cb = on_ultrasonic_bottle_cleared
 
-# ==========================================
-# Socket.IO Background Telemetry Thread
-# ==========================================
+
+# =============================================================================
+# 5. خيط التليمتري اللحظي عبر المقابس (Real-time Telemetry WebSocket Thread)
+# =============================================================================
 def telemetry_thread():
+    """
+    خيط خلفي دائم يبث تحديثات الحساسات والـ KPIs عبر WebSockets بتردد 20Hz (كل 50ms)
+    لتحديث راسم الإشارة، العدادات، والرسوم البيانية في لوحة التحكم بسلاسة تامة.
+    """
     while True:
         try:
             with state.lock:
@@ -153,23 +215,31 @@ def telemetry_thread():
                 }
             socketio.emit('telemetry_update', data)
         except Exception as e:
-            print(f"Telemetry error: {e}")
+            print(f"Telemetry broadcast error: {e}")
         time.sleep(0.05)  # 20Hz refresh rate
+
 
 threading.Thread(target=telemetry_thread, daemon=True).start()
 
-# ==========================================
-# 2. معالج الكاميرا وبث الفيديو مع محرك اتخاذ القرار
-# ==========================================
+
+# =============================================================================
+# 6. فئة معالجة الفيديو والكاميرات (Video Processing & Camera Engine)
+# =============================================================================
 class VideoCamera:
+    """
+    محرك إدارة تدفق الفيديو وتحليل الإطارات بواسطة YOLOv8.
+    يدعم التبديل اللحظي بين الكاميرات وتوليد شاشات بديلة أنيقة في حال انقطاع البث.
+    """
     def __init__(self):
         self.cap = None
         self.is_running = False
         self.last_open_attempt = 0
         self.last_frame_bytes = None
+        self.last_annotated_frame = None
         self.open_camera()
 
     def open_camera(self):
+        """محاولة فتح مصدر الكاميرا المختار بدقة واحترافية."""
         self.last_open_attempt = time.time()
         if self.cap is not None:
             try:
@@ -179,10 +249,13 @@ class VideoCamera:
             self.cap = None
             
         try:
+            # 1. كاميرا الويب المحلية أو منفذ USB Type-C
             if state.current_source in ["webcam", "usb_typec"]:
                 self.cap = cv2.VideoCapture(state.camera_index)
                 if not self.cap.isOpened():
                     self.cap = cv2.VideoCapture(state.camera_index, cv2.CAP_DSHOW)
+
+            # 2. كاميرا الشبكة IP-Cam أو وحدة ESP32-CAM
             elif state.current_source in ["ipcam", "esp32cam"] and state.ip_cam_url:
                 url = normalize_digits(state.ip_cam_url.strip())
                 if not url.startswith(('http://', 'https://', 'rtsp://')):
@@ -195,6 +268,8 @@ class VideoCamera:
                 state.ip_cam_url = url
                 src_name = "ESP32-CAM" if state.current_source == "esp32cam" else "كاميرا الهاتف"
                 print(f"📡 محاولة الاتصال بـ {src_name}: {url}")
+
+                # إذا كانت ESP32-CAM تعمل بنمط اللقطة الفورية (/capture)
                 if state.current_source == "esp32cam" and "/capture" in url:
                     if self.cap is not None:
                         try:
@@ -204,6 +279,7 @@ class VideoCamera:
                     self.cap = None
                     self.is_running = True
                 else:
+                    # نمط البث الحي المتدفق MJPEG
                     if self.cap is not None:
                         try:
                             self.cap.release()
@@ -211,10 +287,12 @@ class VideoCamera:
                             pass
                     self.cap = cv2.VideoCapture(url)
                     try:
-                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # تقليل التخزين المؤقت لتجنب التأخير
                     except Exception:
                         pass
                     self.is_running = self.cap.isOpened()
+
+            # 3. نمط ملف فيديو مسجل
             elif state.current_source == "video" and state.video_file_path:
                 self.cap = cv2.VideoCapture(state.video_file_path)
         except Exception as e:
@@ -226,8 +304,9 @@ class VideoCamera:
         print(f"📷 حالة الكاميرا ({state.current_source} - index {state.camera_index}): {'متصلة ✅' if self.is_running else 'غير متصلة ❌'}")
 
     def create_placeholder_frame(self, title, subtitle):
+        """توليد كادر رسومي أنيق عند انقطاع الكاميرا أو محاولة إعادة الاتصال."""
         blank = np.zeros((480, 640, 3), dtype=np.uint8)
-        blank[:] = (20, 24, 35)
+        blank[:] = (20, 24, 35)  # خلفية داكنة صناعية
         cv2.rectangle(blank, (20, 20), (620, 460), (45, 55, 75), 2)
         cv2.putText(blank, title, (50, 220), cv2.FONT_HERSHEY_DUPLEX, 0.75, (0, 200, 255), 2)
         cv2.putText(blank, subtitle, (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (160, 180, 200), 1)
@@ -237,6 +316,14 @@ class VideoCamera:
         return raw_b
 
     def get_frame(self):
+        """
+        قلب معالجة الرؤية الحاسوبية:
+          1. التقاط الإطار من الكاميرا النشطة.
+          2. تشغيل استدلال YOLOv8 لاكتشاف الزجاجات وعيوبها.
+          3. مطابقة المسافة عبر حساس الألتراسونيك (Ultrasonic Interlock Gate).
+          4. تسجيل عملية الفحص واتخاذ قرار الرفض أو القبول الآلي.
+          5. رسم مربعات الكشف وشريط الحالة الصناعي وتحويل الإطار إلى JPEG.
+        """
         if state.current_source == "phone_stream":
             time.sleep(0.05)
             return self.create_placeholder_frame("Phone Browser Mode Active", "Streaming directly from Phone Browser")
@@ -245,7 +332,9 @@ class VideoCamera:
         success = False
         frame = None
 
-        # 1. نمط التقاط الصور الفورية المباشر لوحدة ESP32-CAM (/capture)
+        # ---------------------------------------------------------------------
+        # نمط التقاط الصور الفورية لوحدة ESP32-CAM عبر مسار (/capture)
+        # ---------------------------------------------------------------------
         if state.current_source == "esp32cam" and "/capture" in (state.ip_cam_url or ""):
             if not self.is_running and (time.time() - self.last_open_attempt < 3.5):
                 time.sleep(0.08)
@@ -266,7 +355,9 @@ class VideoCamera:
                 frame = None
                 self.is_running = False
 
-        # 2. نمط تدفق الفيديو القياسي (OpenCV VideoCapture)
+        # ---------------------------------------------------------------------
+        # نمط تدفق الفيديو القياسي (OpenCV VideoCapture)
+        # ---------------------------------------------------------------------
         else:
             if not self.is_running or self.cap is None or not self.cap.isOpened():
                 if time.time() - self.last_open_attempt > 4.5:
@@ -303,6 +394,7 @@ class VideoCamera:
                 success = False
                 frame = None
 
+        # في حال عدم التمكن من قراءة الإطار
         if not success or frame is None:
             time.sleep(0.05)
             if state.current_source == "ipcam":
@@ -314,7 +406,9 @@ class VideoCamera:
             else:
                 return self.create_placeholder_frame("Camera Disconnected", "Please check camera connection")
 
-        # 1. استدلال YOLOv8 على الإطار
+        # ---------------------------------------------------------------------
+        # 1. تشغيل استدلال YOLOv8 على الإطار (AI Vision Inference)
+        # ---------------------------------------------------------------------
         inference_start = time.time()
         results = model.predict(
             source=frame,
@@ -325,7 +419,9 @@ class VideoCamera:
         proc_time_ms = (time.time() - inference_start) * 1000.0
         state.processing_time_ms = round(proc_time_ms, 1)
 
+        # ---------------------------------------------------------------------
         # 2. التحقق من وجود الزجاجة عبر حساس الألتراسونيك (Ultrasonic Interlock Gate)
+        # ---------------------------------------------------------------------
         current_hw_dist = esp32.get_distance()
         is_bottle_present = state.bottle_in_station or (1.0 < current_hw_dist <= state.distance_threshold)
 
@@ -333,20 +429,22 @@ class VideoCamera:
         inspection = decision_engine.evaluate(boxes, class_names, processing_time_ms=proc_time_ms)
         
         if not is_bottle_present:
-            # المسار خالي أمام الحساس -> لا يتم فحص ولا زيادة عدادات
+            # لا توجد زجاجة في المحطة أمام الحساس -> وضع الاستعداد وتصفير الفحص
             state.bottle_inspected = False
             state.current_decision = "STANDBY"
             state.current_confidence = 0.0
             state.current_defect = None
         else:
-            # زجاجة موجودة داخل محطة الفحص!
+            # توجد زجاجة داخل محطة الفحص!
             state.current_decision = inspection.decision
             state.current_confidence = round(float(inspection.confidence) * 100, 1)
             state.current_defect = inspection.defect_type
 
-            # 3. فحص لمرة واحدة فقط لكل زجاجة قادمة (One-Shot per Bottle)
+            # -----------------------------------------------------------------
+            # 3. فحص لمرة واحدة فقط لكل زجاجة قادمة (One-Shot Inspection per Bottle)
+            # -----------------------------------------------------------------
             if not state.bottle_inspected and inspection.decision in ["PASS", "FAIL", "REVIEW"]:
-                state.bottle_inspected = True
+                state.bottle_inspected = True  # إغلاق البوابة حتى تعبر الزجاجة الحالية
 
                 # تسجيل العملية في قاعدة البيانات
                 inspection_db.log(
@@ -373,7 +471,7 @@ class VideoCamera:
 
                     state.total_inspections = state.good_bottles + state.defective_bottles + state.review_bottles
 
-                # إرسال إشارة للهاردوير في وضع Auto Mode
+                # إرسال إشارة التحكم للعتاد في الوضع الآلي (Auto Mode Actuation)
                 if state.auto_mode:
                     if inspection.decision == "PASS":
                         esp32.actuate_pass()
@@ -382,14 +480,16 @@ class VideoCamera:
                     elif inspection.decision == "REVIEW":
                         esp32.actuate_review()
 
-        # رسم المربعات الاحترافية
+        # ---------------------------------------------------------------------
+        # 4. رسم مربعات التحديد والشريط الإرشادي العلوي على الصورة
+        # ---------------------------------------------------------------------
         annotated_frame = results[0].plot()
 
         process_time = time.time() - start_time
         current_fps = 1.0 / process_time if process_time > 0 else 30.0
         state.fps = round(current_fps, 1)
 
-        # شريط الحالة العلوي
+        # تحديد لون ونصوص شريط الحالة
         if not is_bottle_present:
             status_text = "STANDBY: WAITING FOR BOTTLE"
             status_color = (180, 180, 180)
@@ -420,18 +520,22 @@ class VideoCamera:
         cv2.putText(annotated_frame, f"FPS: {state.fps} | {src_label} | {state.processing_time_ms}ms", 
                     (18, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (220, 220, 220), 1)
 
+        # ضغط الصورة بتنسيق JPEG لإرسالها عبر الشبكة
         _, jpeg = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         frame_bytes = jpeg.tobytes()
         self.last_frame_bytes = frame_bytes
         self.last_annotated_frame = annotated_frame
         return frame_bytes
 
+
 camera = VideoCamera()
 
-import threading, shutil
 
-# Create initial placeholder images so LabVIEW never gets Error 7 on first run
+# =============================================================================
+# 7. محرك البث المباشر لبرنامج LabVIEW (LabVIEW Picture & Vision Bridge)
+# =============================================================================
 def _create_initial_labview_frame():
+    """إنشاء صورة بدائية في مسار C:/SmartBottle حتى لا يظهر الخطأ Error 7 في LabVIEW عند أول تشغيل."""
     try:
         os.makedirs("C:/SmartBottle", exist_ok=True)
         blank = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -447,11 +551,16 @@ def _create_initial_labview_frame():
     except Exception:
         pass
 
+
 _create_initial_labview_frame()
 
+
 def _labview_streamer():
-    """Background thread: writes camera frames to C:/SmartBottle/labview_live.jpg and .bmp
-    Uses isolated temp-file + atomic replacement so LabVIEW never hits file-lock collision."""
+    """
+    خيط خلفي دائم لتحديث ملف الصورة المشترك لـ LabVIEW:
+    يستخدم تقنية الاستبدال الذري (Atomic Replacement via Temp File)
+    لمنع حدوث تعارض في قفل الملفات (File Lock Collision) مع حلقات LabVIEW.
+    """
     time.sleep(1.0)
     temp_p = "C:/SmartBottle/.temp_frame.jpg"
     final_p = "C:/SmartBottle/labview_live.jpg"
@@ -464,7 +573,7 @@ def _labview_streamer():
             if not raw:
                 raw = camera.get_frame()
             if raw:
-                # 1. Update JPEG
+                # تحديث ملف JPEG
                 with open(temp_p, "wb") as f_tmp:
                     f_tmp.write(raw)
                 try:
@@ -474,7 +583,7 @@ def _labview_streamer():
                 except Exception:
                     pass
 
-            # 2. Update BMP (uncompressed native Windows format for Read BMP File.vi)
+            # تحديث ملف BMP غير المضغوط المتوافق مع بلوك (Read BMP File.vi) في LabVIEW
             ann = getattr(camera, 'last_annotated_frame', None)
             if ann is not None:
                 _, bmp_bytes = cv2.imencode('.bmp', ann)
@@ -488,30 +597,36 @@ def _labview_streamer():
                     pass
         except Exception:
             pass
-        time.sleep(0.10)  # ~10 FPS matching LabVIEW 100ms loop timer
+        time.sleep(0.10)  # تحديث كل 100ms ليطابق مؤقت حلقة LabVIEW
+
 
 threading.Thread(target=_labview_streamer, daemon=True).start()
 
+
 def gen(cam):
+    """مولد تدفق الفيديو بصيغة MJPEG لمتصفحات الويب."""
     while True:
         frame = cam.get_frame()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
         time.sleep(0.01)
 
-# ==========================================
-# 3. مسارات الـ API الأساسية
-# ==========================================
+
+# =============================================================================
+# 8. مسارات واجهات برمجة التطبيقات (Flask HTTP REST Endpoints)
+# =============================================================================
 @app.after_request
 def add_cache_headers(response):
+    """إلغاء التخزين المؤقت (Cache) لضمان وصول أحدث البيانات اللحظية دائماً."""
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
 
+
 @app.route('/labview_cam')
 def labview_cam():
-    """Lightweight auto-refreshing camera page tailored specifically for LabVIEW WebBrowser / IWebBrowser2"""
+    """صفحة كاميرا فائقة الخفة مخصصة لمتصفح LabVIEW الداخلي (WebBrowser / IWebBrowser2)."""
     return """<!DOCTYPE html>
 <html>
 <head>
@@ -533,21 +648,29 @@ def labview_cam():
 </html>
 """
 
+
 @app.route('/')
 def index():
+    """الصفحة الرئيسية للوحة تحكم SCADA الصناعية المتكاملة."""
     return render_template('index.html')
+
 
 @app.route('/inspector')
 def inspector():
+    """استوديو الفحص والتحليل اليدوي واللقطات الفورية."""
     return render_template('inspector.html')
+
 
 @app.route('/video_feed')
 def video_feed():
+    """مسار تدفق الفيديو المباشر للكاميرا بصيغة MJPEG."""
     return Response(gen(camera),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
 @app.route('/api/stats')
 def get_stats():
+    """استرجاع لقطة JSON شاملة لكافة إحصائيات الإنتاج، الحساسات، والعتاد."""
     with state.lock:
         total = state.good_bottles + state.defective_bottles + state.review_bottles
         pass_rate = round((state.good_bottles / total * 100), 1) if total > 0 else 100.0
@@ -578,8 +701,10 @@ def get_stats():
             "logs": recent_logs
         })
 
+
 @app.route('/api/scan_cameras')
 def scan_cameras():
+    """فحص منافذ كاميرات الويب المتاحة محلياً في نظام التشغيل (من 0 إلى 4)."""
     available = []
     for i in range(5):
         cap = cv2.VideoCapture(i)
@@ -594,8 +719,10 @@ def scan_cameras():
             cap.release()
     return jsonify({"cameras": available, "count": len(available)})
 
+
 @app.route('/api/update_settings', methods=['POST'])
 def update_settings():
+    """تحديث إعدادات النظام الحية (عتبات الثقة، الكاميرا، وضع التشغيل)."""
     data = request.json or {}
     if 'conf_threshold' in data:
         state.conf_threshold = float(data['conf_threshold'])
@@ -626,8 +753,10 @@ def update_settings():
         "distance_threshold": state.distance_threshold
     })
 
+
 @app.route('/api/mode', methods=['POST', 'GET'])
 def toggle_mode():
+    """التبديل بين وضع التشغيل الآلي (AUTO) واليدوي (MANUAL)."""
     if request.method == 'POST':
         data = request.json or {}
         if 'auto_mode' in data:
@@ -640,21 +769,27 @@ def toggle_mode():
         "mode_label": "AUTO" if state.auto_mode else "MANUAL"
     })
 
-# ==========================================
-# 4. مسارات التحكم بالهاردوير (ESP32 APIs)
-# ==========================================
+
+# =============================================================================
+# 9. مسارات التحكم بالعتاد عبر الويب (ESP32 Hardware APIs)
+# =============================================================================
 @app.route('/api/hardware/status', methods=['GET'])
 def get_hardware_status():
+    """استرجاع حالة كافة عناصر العتاد الموصلة."""
     status = esp32.get_status()
     return jsonify(status)
 
+
 @app.route('/api/hardware/distance', methods=['GET'])
 def get_hardware_distance():
+    """استرجاع قراءة المسافة اللحظية من حساس الألتراسونيك."""
     dist = esp32.get_distance()
     return jsonify({"distance_cm": dist, "unit": "cm"})
 
+
 @app.route('/api/hardware/command', methods=['POST'])
 def send_hardware_command():
+    """إرسال أمر نصي مباشر إلى متحكم ESP32."""
     data = request.json or {}
     cmd = data.get("command", "")
     if not cmd:
@@ -662,8 +797,10 @@ def send_hardware_command():
     res = esp32.serial_manager.send_command(cmd)
     return jsonify(res)
 
+
 @app.route('/api/hardware/motor', methods=['POST', 'GET'])
 def control_motor():
+    """التحكم بتشغيل وإيقاف محرك السير الناقل."""
     data = request.json if request.is_json else {}
     action = request.args.get("action", data.get("action", "")).lower()
     state_val = data.get("state", None)
@@ -676,8 +813,10 @@ def control_motor():
         return jsonify({"error": "Invalid motor action. Use 'on' or 'off'"}), 400
     return jsonify(res)
 
+
 @app.route('/api/hardware/servo', methods=['POST', 'GET'])
 def control_servo():
+    """التحكم بذراع محرك السيرفو لطرد الزجاجات أو فتح المسار."""
     data = request.json if request.is_json else {}
     action = request.args.get("action", data.get("action", "")).lower()
     custom_angle = request.args.get("angle", data.get("angle", None))
@@ -697,22 +836,28 @@ def control_servo():
         return jsonify({"error": "Invalid servo action. Use 'reject', 'home', or 'set'"}), 400
     return jsonify(res)
 
+
 @app.route('/api/hardware/led', methods=['POST', 'GET'])
 def control_led():
+    """التحكم بليدات الحالة الصناعية (Green, Red, Blue, Off)."""
     data = request.json if request.is_json else {}
     color = request.args.get("color", data.get("color", "off")).lower()
     res = esp32.set_led(color)
     return jsonify(res)
 
+
 @app.route('/api/hardware/buzzer', methods=['POST', 'GET'])
 def control_buzzer():
+    """إطلاق نغمة الإنذار الصوتي عبر صافرة التنبيه."""
     data = request.json if request.is_json else {}
     duration = int(request.args.get("duration_ms", data.get("duration_ms", 200)))
     res = esp32.trigger_buzzer(duration)
     return jsonify(res)
 
+
 @app.route('/api/hardware/relay', methods=['POST', 'GET'])
 def control_relay():
+    """التحكم بريليه إضاءة صندوق الفحص الصناعي (GPIO 25)."""
     data = request.json if request.is_json else {}
     action = request.args.get("action", data.get("action", "")).lower()
     if action == "on":
@@ -723,12 +868,23 @@ def control_relay():
         return jsonify({"error": "Invalid relay action. Use 'on' or 'off'"}), 400
     return jsonify(res)
 
-# ==========================================
-# 4. LabVIEW Dedicated Integration Endpoints
-# ==========================================
+
+@app.route('/api/hardware/reset', methods=['POST', 'GET'])
+def reset_hardware():
+    """إعادة تعيين كافة مشغلات العتاد إلى وضع الجاهزية الافتراضي."""
+    res = esp32.reset()
+    return jsonify(res)
+
+
+# =============================================================================
+# 10. نقاط تكامل برنامج LabVIEW الصناعي (LabVIEW Dedicated Endpoints)
+# =============================================================================
 @app.route('/api/labview/telemetry', methods=['GET'])
 def get_labview_telemetry():
-    """Flat, structured JSON perfectly tailored for LabVIEW Unflatten From JSON.vi"""
+    """
+    مسار مخصص لبرنامج LabVIEW يرجع كائن JSON مسطح تماماً (Flat JSON)،
+    مصمم خصيصاً ليتطابق مع بلوك (Unflatten From JSON.vi) بدون مصفوفات معقدة.
+    """
     with state.lock:
         total = state.good_bottles + state.defective_bottles + state.review_bottles
         pass_rate = round((state.good_bottles / total * 100), 1) if total > 0 else 100.0
@@ -743,7 +899,6 @@ def get_labview_telemetry():
         is_esp = hw.get("esp32") == "ONLINE"
 
         return jsonify({
-            # Standard keys
             "fps": round(float(state.fps), 1),
             "total": int(total),
             "good": int(state.good_bottles),
@@ -768,9 +923,13 @@ def get_labview_telemetry():
             "bottle_in_station": is_bot
         })
 
+
 @app.route('/api/labview/snapshot.jpg', methods=['GET'])
 def get_labview_snapshot():
-    """Returns the latest annotated JPEG frame directly as raw binary image for LabVIEW Picture / Vision"""
+    """
+    استرجاع أحدث إطار معالج كصورة JPEG ثنائية خام مباشرة
+    لتغذية بلوكات الرؤية في LabVIEW Vision / Picture Control.
+    """
     try:
         frame_bytes = camera.last_frame_bytes
         if not frame_bytes:
@@ -782,16 +941,13 @@ def get_labview_snapshot():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/hardware/reset', methods=['POST', 'GET'])
-def reset_hardware():
-    res = esp32.reset()
-    return jsonify(res)
 
-# ==========================================
-# 5. مسارات الصور والتقارير
-# ==========================================
+# =============================================================================
+# 11. مسارات استوديو الفحص وتصدير التقارير (Reports & Image Uploads)
+# =============================================================================
 @app.route('/api/upload_image', methods=['POST'])
 def upload_image():
+    """فحص صورة زجاجة يدوية مرفوعة من المستخدم وتطبيق استدلال YOLO عليها."""
     if 'image' not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
     file = request.files['image']
@@ -834,10 +990,12 @@ def upload_image():
         "total_detected": len(inspection.all_detections)
     })
 
+
 @app.route('/api/capture_and_inspect', methods=['POST'])
 def capture_and_inspect():
+    """التقاط إطار فوري مفرد من الكاميرا النشطة وفحصه بالذكاء الاصطناعي."""
     frame = None
-    # 1. Try ESP32-CAM capture URL first if selected
+    # محاولة الالتقاط من ESP32-CAM إن كانت مختارة
     if state.current_source == "esp32cam":
         try:
             capture_url = state.ip_cam_url.replace("/stream", "/capture") if "/stream" in (state.ip_cam_url or "") else state.ip_cam_url
@@ -849,7 +1007,7 @@ def capture_and_inspect():
             print(f"ESP32-CAM capture failed: {e}")
             pass
             
-    # 2. Fallback to current camera read
+    # بديل: القراءة من الكاميرا المحلية
     if frame is None and camera.cap is not None and camera.cap.isOpened():
         ret, frame = camera.cap.read()
         if not ret: frame = None
@@ -892,13 +1050,17 @@ def capture_and_inspect():
         "processing_time_ms": round(proc_time_ms, 1)
     })
 
+
 @app.route('/api/reset_stats', methods=['POST'])
 def reset_stats():
+    """مسار إعادة تعيين العدادات الإحصائية."""
     state.reset_stats()
     return jsonify({"status": "success"})
 
+
 @app.route('/api/export_csv')
 def export_csv():
+    """تنزيل تقرير الفحص الشامل بصيغة CSV."""
     csv_content = inspection_db.export_csv_stream()
     return Response(
         csv_content,
@@ -906,9 +1068,14 @@ def export_csv():
         headers={"Content-Disposition": "attachment;filename=smart_bottle_inspection_report.csv"}
     )
 
+
+# =============================================================================
+# 12. نقطة انطلاق التطبيق الرئيسية (Main Application Entrypoint)
+# =============================================================================
 if __name__ == '__main__':
     print("=============================================================")
-    print("🍾 نظام الفحص الذكي في الوقت الحقيقي يعمل الآن!")
-    print("🌐 افتح محلياً: http://127.0.0.1:5000")
+    print("🍾 نظام الفحص الذكي للزجاجات SmartBottle™ AI SCADA يعمل الآن!")
+    print("🌐 الواجهة المحلية: http://127.0.0.1:5000")
+    print("📱 الشبكة المحلية: http://0.0.0.0:5000")
     print("=============================================================")
     socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)

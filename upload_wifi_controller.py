@@ -1,8 +1,14 @@
 """
 =============================================================================
-Smart Bottle Inspection - Dedicated Wi-Fi Controller Firmware Uploader
+SmartBottle™ AI Vision SCADA - أداة حرق فيرموير متحكم الواي فاي (Wi-Fi Uploader)
 =============================================================================
-Uploads esp32_wifi_controller/main.py directly to ESP32 board using mpremote.
+الوظيفة البرمجية والهندسية:
+  تقوم هذه الأداة برفع ملف كود المتحكم الشبكي (esp32_wifi_controller/main.py)
+  إلى بوردة ESP32 باستخدام أداة ميكروبايثون الرسمية (mpremote):
+  
+  1. اكتشاف المنافذ التسلسلية المتصلة وتحديد المنفذ المستهدف.
+  2. نسخ ملف main.py إلى الذاكرة الرئيسية للمتحكم.
+  3. إعادة تشغيل البوردة برمجياً لتبدأ بالاتصال بشبكة Wi-Fi وتشغيل خادم REST API (Port 80).
 =============================================================================
 """
 
@@ -12,51 +18,56 @@ import subprocess
 import time
 import serial.tools.list_ports
 
+# ضبط ترميز الطرفية لدعم UTF-8 على ويندوز
 sys.stdout.reconfigure(encoding='utf-8')
 
 print("=============================================================")
-print("🌐 ESP32 WIRELESS NETWORK CONTROLLER UPLOADER")
+print("🌐 أداة حرق فيرموير متحكم الواي فاي اللاسلكي (ESP32 Wi-Fi Controller)")
 print("=============================================================")
 
-# 1. Detect connected serial ports
+# -----------------------------------------------------------------------------
+# 1. فحص المنافذ التسلسلية المتاحة
+# -----------------------------------------------------------------------------
 ports = [p.device for p in serial.tools.list_ports.comports()]
-print(f"🔍 Detected Serial Ports: {ports}")
+print(f"🔍 المنافذ المكتشفة: {ports}")
 
 if not ports:
-    print("❌ No serial ports found. Please connect your ESP32 controller board via USB.")
+    print("❌ لم يتم العثور على أي منفذ. يرجى توصيل بوردة ESP32 بكابل USB.")
     sys.exit(1)
 
-# Pick target port (or ask / detect)
+# اختيار المنفذ المستهدف
 target_port = ports[0] if len(ports) == 1 else None
 if not target_port:
-    print("\n⚠️ Multiple COM ports detected:")
+    print("\n⚠️ تم اكتشاف عدة منافذ، سيتم استخدام المنفذ الأول افتراضياً:")
     for i, p in enumerate(ports):
         print(f"   [{i+1}] {p}")
-    print(f"👉 Target port defaulted to: {ports[0]}")
     target_port = ports[0]
 
 firmware_file = os.path.join("esp32_wifi_controller", "main.py")
 if not os.path.exists(firmware_file):
-    print(f"❌ Firmware file not found: {firmware_file}")
+    print(f"❌ لم يتم العثور على ملف الكود: {firmware_file}")
     sys.exit(1)
 
-print(f"🎯 Target Port: {target_port}")
-print(f"📄 Firmware file: {firmware_file}")
-print("🚀 Uploading wireless firmware to ESP32 (:main.py)...")
-print("⚠️ Reminder: Please make sure Thonny IDE is closed.")
+print(f"🎯 المنفذ المستهدف: {target_port}")
+print(f"📄 ملف الكود المراد رفعه: {firmware_file}")
+print("🚀 جارٍ رفع الفيرموير عبر mpremote إلى (:main.py)...")
+print("⚠️ تنبيه: يرجى التأكد من إغلاق برنامج Thonny IDE لتفادي قفل المنفذ.")
 
+# -----------------------------------------------------------------------------
+# 2. تنفيذ أمر الرفع عبر أداة mpremote
+# -----------------------------------------------------------------------------
 cmd = [sys.executable, "-m", "mpremote", "connect", target_port, "fs", "cp", firmware_file, ":main.py"]
 try:
     res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
     if res.returncode == 0:
-        print("✅ Firmware uploaded successfully to ESP32!")
-        print("🔄 Resetting ESP32 to boot into Wi-Fi mode...")
+        print("✅ تم رفع الفيرموير اللاسلكي بنجاح إلى ESP32!")
+        print("🔄 جارٍ إعادة تشغيل البوردة للدخول في وضع شبكة Wi-Fi...")
         subprocess.run([sys.executable, "-m", "mpremote", "connect", target_port, "reset"], capture_output=True)
-        print("🎉 ESP32 is now booting! Watch Thonny or console to see its allocated Wi-Fi IP address.")
+        print("🎉 تعمل البوردة الآن! يمكنك مراقبة عنوان الـ IP الممنوح لها عبر الطرفية.")
     else:
-        print(f"⚠️ Upload returned code {res.returncode}:")
+        print(f"⚠️ ظهرت رسالة أثناء الرفع (رمز الخروج: {res.returncode}):")
         print(res.stderr or res.stdout)
         if "could not open port" in (res.stderr or "").lower() or "permissionerror" in (res.stderr or "").lower():
-            print("💡 Reminder: Please close Thonny IDE or any serial monitor, then re-run this script.")
+            print("💡 تذكير: أغلق برنامج Thonny IDE أو أي برنامج يراقب المنفذ ثم أعد المحاولة.")
 except Exception as e:
-    print(f"❌ Error during upload: {e}")
+    print(f"❌ حدث خطأ أثناء الرفع: {e}")
